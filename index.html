@@ -270,11 +270,9 @@
   .note a{ color:var(--amber); }
   .empty-hint{ text-align:center; color:var(--chalk-dim); font-size:13px; margin-top:30px; font-family:'IBM Plex Mono',monospace; }
 
-  @media (max-width:640px){
-    h1{ font-size:38px; }
-    .stat-row{ grid-template-columns:repeat(3,1fr); }
-    .rhythm-stats{ grid-template-columns:repeat(2,1fr); }
-  }
+  @media (max-width:900px){.wrap{max-width:100%;padding:0 18px}h1{font-size:48px}.player-card,.team-summary,.trends-panel{padding:18px}}
+  @media (max-width:640px){body{padding-bottom:40px}.wrap{padding:0 12px}header.hero{padding:28px 0 24px}.center-circle{width:170px;height:170px}.crest{width:96px}h1{font-size:38px}header.hero p{font-size:14px}.folder-bar,.dropzone{max-width:100%}.folder-bar{align-items:stretch}.folder-status{min-width:0}.folder-btns{width:100%}.folder-btns button{flex:1}.dropzone{padding:28px 14px}.player-card{padding:16px 14px}.meta-form{display:grid;grid-template-columns:1fr;gap:10px;width:100%}.meta-field select,.meta-field input[type=text],.meta-field input[type=date],.meta-field input[type=number],.meta-field input.maxhr-input,.meta-field input.date-input,.meta-field .readonly-field{min-width:0;max-width:none;width:100%}.stat-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.rhythm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.team-summary,.trends-panel{padding:14px 10px;overflow-x:auto}table.agg{min-width:620px}.history-entry{align-items:flex-start;padding:12px}.chart-wrap{min-height:240px;padding:10px}.modal-overlay{padding:16px 8px}.save-row .btn-primary{width:100%}}
+  @media (max-width:380px){h1{font-size:33px}.rpe-pills{flex-wrap:wrap}}
 </style>
 </head>
 <body>
@@ -288,18 +286,8 @@
   </header>
 
   <div class="folder-bar" id="folderBar">
-    <div class="folder-status" id="folderStatus">Controllo cartella dati locale…</div>
-    <div class="folder-btns">
-      <button class="btn-ghost" id="connectFolderBtn" style="display:none;">Collega cartella dati</button>
-      <button class="btn-ghost" id="reconnectFolderBtn" style="display:none;">Ricollega cartella</button>
-      <button class="btn-ghost" id="reloadFolderBtn" style="display:none;">Ricarica da cartella</button>
-    </div>
-  </div>
-
-  <div class="reconnect-banner" id="reconnectBanner">
-    <div class="rb-icon">🔒</div>
-    <div class="rb-text"><strong>Cartella collegata ma serve un click per ridare l'accesso.</strong> Il browser richiede di confermare il permesso ad ogni nuova apertura della pagina: senza questo click i dati nella cartella non vengono letti né scritti.</div>
-    <button class="rb-btn" id="reconnectBannerBtn">Ricollega cartella ora</button>
+    <div class="folder-status" id="folderStatus">Connessione a Cloudflare…</div>
+    <div class="folder-btns"><button class="btn-ghost" id="reloadCloudBtn">Ricarica dal cloud</button></div>
   </div>
 
   <div class="dropzone" id="dropzone">
@@ -961,107 +949,24 @@ async function dbDelete(id){ const db=await openDB(); return new Promise((res,re
 async function metaPut(id, handle){ const db=await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction(META_STORE,'readwrite'); tx.objectStore(META_STORE).put({id, handle}); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
 async function metaGet(id){ const db=await openDB(); return new Promise((res,rej)=>{ const tx=db.transaction(META_STORE,'readonly'); const req=tx.objectStore(META_STORE).get(id); req.onsuccess=()=>res(req.result); req.onerror=()=>rej(req.error); }); }
 
-/* ---------------- Cartella dati locale (File System Access API) ---------------- */
-let dirHandle = null;
-
-function updateFolderStatus(state){
-  const statusEl = document.getElementById('folderStatus');
-  const connectBtn = document.getElementById('connectFolderBtn');
-  const reconnectBtn = document.getElementById('reconnectFolderBtn');
-  const reloadBtn = document.getElementById('reloadFolderBtn');
-  const banner = document.getElementById('reconnectBanner');
-  connectBtn.style.display='none'; reconnectBtn.style.display='none'; reloadBtn.style.display='none';
-  banner.classList.remove('show');
-  if(state==='unsupported'){
-    statusEl.textContent = 'Cartella dati locale non disponibile in questo browser (serve Chrome o Edge desktop). Lo storico resta comunque salvato nel database del browser.';
-  } else if(state==='none'){
-    statusEl.textContent = 'Nessuna cartella collegata: lo storico è salvato solo nel database del browser. Collega una cartella per avere anche file .json reali su disco.';
-    connectBtn.style.display='inline-block';
-  } else if(state==='reconnect'){
-    statusEl.textContent = `Cartella "${dirHandle ? dirHandle.name : ''}" trovata ma serve confermare di nuovo l'accesso (il browser lo richiede ad ogni riapertura).`;
-    reconnectBtn.style.display='inline-block';
-    // Banner grande ed evidente: il permesso della File System Access API va
-    // ridato ad ogni sessione del browser e richiede un gesto esplicito dell'utente,
-    // quindi qui non basta il piccolo pulsante nella barra: serve qualcosa che si noti.
-    banner.querySelector('.rb-text').innerHTML = `<strong>Cartella "${dirHandle ? dirHandle.name : 'dati'}" collegata ma serve un click per ridare l'accesso.</strong> Il browser richiede di confermare il permesso ad ogni nuova apertura della pagina: finché non clicchi, la vista squadra e lo storico non vedono i file salvati nella cartella.`;
-    banner.classList.add('show');
-  } else if(state==='connected'){
-    statusEl.textContent = `Cartella "${dirHandle.name}" collegata: ogni sessione salvata viene scritta anche qui come file .json.`;
-    reloadBtn.style.display='inline-block';
-  }
+/* ---------------- Archivio Cloudflare (Worker + R2) ---------------- */
+const CLOUDFLARE_API_URL = 'https://olr-analysis-api.alebruno205.workers.dev';
+function cloudConfigured(){ return /^https?:\/\//.test(CLOUDFLARE_API_URL) && !CLOUDFLARE_API_URL.includes('INSERISCI_QUI'); }
+function updateCloudStatus(message,isError=false){ const el=document.getElementById('folderStatus'); el.textContent=message; el.style.color=isError?'var(--coral)':'var(--chalk-dim)'; }
+async function cloudRequest(path='',options={}){
+  if(!cloudConfigured()) throw new Error('Configura CLOUDFLARE_API_URL con l’URL del Worker.');
+  const res=await fetch(CLOUDFLARE_API_URL.replace(/\/$/,'')+path,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
+  if(!res.ok){let msg=`Errore Cloudflare (${res.status})`;try{const d=await res.json();if(d.error)msg=d.error;}catch(e){}throw new Error(msg);}
+  return res.status===204?null:res.json();
 }
-
-async function connectFolder(){
-  if(!window.showDirectoryPicker){ updateFolderStatus('unsupported'); return; }
-  try{
-    dirHandle = await window.showDirectoryPicker({ id:'tcxSquadData', mode:'readwrite' });
-    await metaPut('dirHandle', dirHandle);
-    await loadFromFolder();
-    updateFolderStatus('connected');
-  }catch(err){ /* utente ha annullato la selezione */ }
+async function writeEntryToCloud(entry){ return cloudRequest('/entries/'+encodeURIComponent(entry.id),{method:'PUT',body:JSON.stringify(entry)}); }
+async function loadFromCloud(){
+  if(!cloudConfigured()){updateCloudStatus('Cloudflare non configurato: inserisci l’URL del Worker nel file HTML.',true);return 0;}
+  updateCloudStatus('Caricamento dati da Cloudflare…');
+  try{const entries=await cloudRequest('/entries');let count=0;for(const entry of (entries||[])){if(!entry.id)entry.id=uuid();await dbPut(entry);count++;}await refreshHistory();updateCloudStatus(`${count} sessione/i sincronizzate da Cloudflare.`);return count;}
+  catch(err){console.error(err);updateCloudStatus(`Cloudflare non raggiungibile: ${err.message}`,true);return 0;}
 }
-async function reconnectFolder(){
-  if(!dirHandle) return connectFolder();
-  try{
-    const perm = await dirHandle.requestPermission({ mode:'readwrite' });
-    if(perm==='granted'){ await loadFromFolder(); updateFolderStatus('connected'); }
-    else updateFolderStatus('reconnect');
-  }catch(err){ updateFolderStatus('reconnect'); }
-}
-async function restoreFolderOnLoad(){
-  if(!window.showDirectoryPicker){ updateFolderStatus('unsupported'); return; }
-  try{
-    const rec = await metaGet('dirHandle');
-    if(!rec || !rec.handle){ updateFolderStatus('none'); return; }
-    dirHandle = rec.handle;
-    const perm = await dirHandle.queryPermission({ mode:'readwrite' });
-    if(perm==='granted'){ await loadFromFolder(); updateFolderStatus('connected'); }
-    else updateFolderStatus('reconnect');
-  }catch(err){ updateFolderStatus('none'); }
-}
-async function writeEntryToFolder(entry){
-  if(!dirHandle) return;
-  try{
-    const perm = await dirHandle.queryPermission({ mode:'readwrite' });
-    if(perm!=='granted') return;
-    const fname = `${entry.date}_${slugify(entry.player)}_${slugify(entry.allenamento)}_${entry.id.slice(0,8)}.json`;
-    const fh = await dirHandle.getFileHandle(fname, { create:true });
-    const w = await fh.createWritable();
-    await w.write(JSON.stringify(entry, null, 2));
-    await w.close();
-  }catch(err){ console.warn('Scrittura su cartella locale fallita', err); }
-}
-async function loadFromFolder(){
-  if(!dirHandle) return 0;
-  let count = 0;
-  try{
-    for await (const [name, handle] of dirHandle.entries()){
-      if(handle.kind==='file' && name.toLowerCase().endsWith('.json')){
-        try{
-          const file = await handle.getFile();
-          const entry = JSON.parse(await file.text());
-          if(!entry.id) entry.id = uuid();
-          await dbPut(entry);
-          count++;
-        }catch(e){ /* file non leggibile: viene ignorato */ }
-      }
-    }
-  }catch(err){ console.warn('Lettura cartella locale fallita', err); }
-  await refreshHistory();
-  return count;
-}
-/* Ricostruisce il nome file con la stessa formula usata in writeEntryToFolder()
-   (il nome su disco non viene salvato dentro l'entry, quindi va ricalcolato) e
-   lo elimina dalla cartella collegata, se presente e con permesso attivo. */
-async function deleteEntryFile(entry){
-  if(!dirHandle || !entry) return;
-  try{
-    const perm = await dirHandle.queryPermission({ mode:'readwrite' });
-    if(perm!=='granted') return;
-    const fname = `${entry.date}_${slugify(entry.player)}_${slugify(entry.allenamento)}_${entry.id.slice(0,8)}.json`;
-    await dirHandle.removeEntry(fname);
-  }catch(err){ /* il file può non esistere più: nessun problema, si ignora */ }
-}
+async function deleteEntryFile(entry){ if(!entry||!cloudConfigured())return; return cloudRequest('/entries/'+encodeURIComponent(entry.id),{method:'DELETE'}); }
 
 /* ---------------- Rendering ---------------- */
 /* Etichetta del range per una zona FC (in % della FC max) o di velocità (in km/h), da mostrare
@@ -1385,7 +1290,7 @@ function renderTeam(){
       document.getElementById('teamContent').appendChild(emptyEl);
     }
     emptyEl.style.display = 'block';
-    emptyEl.textContent = 'Nessun dato disponibile ancora. Carica dei file .fit qui sopra, oppure collega/ricarica la cartella con lo storico salvato per vedere subito la vista di squadra.';
+    emptyEl.textContent = 'Nessun dato disponibile ancora. Carica dei file .fit qui sopra, oppure ricarica lo storico salvato su Cloudflare per vedere subito la vista di squadra.';
     return;
   } else {
     const emptyEl = document.getElementById('teamEmptyState');
@@ -1640,11 +1545,11 @@ async function refreshHistory(){
   }).join('');
 
   list.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', async e => {
-    const id = e.target.dataset.del;
-    const entry = entries.find(en => en.id === id);
-    await dbDelete(id);
-    if(entry) await deleteEntryFile(entry);
-    refreshHistory();
+    const id=e.target.dataset.del, entry=entries.find(en=>en.id===id);
+    if(!entry)return;
+    if(!confirm(`Vuoi eliminare definitivamente la sessione di ${entry.player||'questo giocatore'} del ${entry.date||'giorno selezionato'}?\n\nVerrà eliminata anche da Cloudflare.`))return;
+    try{await deleteEntryFile(entry);await dbDelete(id);await refreshHistory();alert('Sessione eliminata.');}
+    catch(err){alert('Impossibile eliminare da Cloudflare: '+err.message+'\nIl dato locale non è stato cancellato.');}
   }));
   list.querySelectorAll('[data-detail]').forEach(btn => btn.addEventListener('click', e => {
     const entry = entries.find(en => en.id === e.target.dataset.detail);
@@ -1717,11 +1622,11 @@ async function saveSession(){
       chartSeries:p.chartSeries,
     };
     await dbPut(entry);
-    await writeEntryToFolder(entry);
+    await writeEntryToCloud(entry);
   }
   await refreshHistory();
 
-  let msg = toSave.length ? `${toSave.length} sessione/i salvate nello storico${dirHandle ? ' e nella cartella locale' : ' del browser'}.` : '';
+  let msg = toSave.length ? `${toSave.length} sessione/i salvate nello storico e su Cloudflare.` : '';
   if(skipped.length) msg += (msg?'\n':'') + `${skipped.length} file ignorati perché già presenti nello storico (stesso file, giocatore e data): ${skipped.map(p=>p.fileName).join(', ')}.`;
   alert(msg || 'Nessuna sessione da salvare.');
 
@@ -1908,18 +1813,19 @@ fileInput.addEventListener('change', e => { handleFiles(e.target.files); fileInp
 ['dragenter','dragover'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
 ['dragleave','drop'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
 dropzone.addEventListener('drop', e => { if(e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); });
-document.getElementById('clearBtn').addEventListener('click', () => { players=[]; renderAll(); });
+document.getElementById('clearBtn').addEventListener('click', () => { if(players.length&&!confirm('Vuoi svuotare i file caricati non ancora salvati?'))return; players=[]; renderAll(); });
 document.getElementById('saveSessionBtn').addEventListener('click', saveSession);
 
 document.getElementById('teamSource').addEventListener('change', () => { teamSelectedGroups = new Set(); renderTeam(); });
 document.getElementById('teamViewMode').addEventListener('change', renderTeam);
 document.getElementById('teamGroupMode').addEventListener('change', () => { teamSelectedGroups = new Set(); renderTeam(); });
+document.getElementById('reloadCloudBtn').addEventListener('click', loadFromCloud);
 document.getElementById('teamPlayerSelect').addEventListener('change', e => { teamSelectedPlayer = e.target.value; renderTeam(); });
 
-document.getElementById('connectFolderBtn').addEventListener('click', connectFolder);
-document.getElementById('reconnectFolderBtn').addEventListener('click', reconnectFolder);
-document.getElementById('reloadFolderBtn').addEventListener('click', loadFromFolder);
-document.getElementById('reconnectBannerBtn').addEventListener('click', reconnectFolder);
+
+
+
+
 
 document.getElementById('historyFilterPlayer').addEventListener('change', refreshHistory);
 document.getElementById('historyFilterDate').addEventListener('change', refreshHistory);
@@ -1948,7 +1854,7 @@ document.getElementById('importInput').addEventListener('change', async e => {
 
 renderAll();
 refreshHistory();
-restoreFolderOnLoad();
+loadFromCloud();
 </script>
 </body>
 </html>
