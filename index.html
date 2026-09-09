@@ -1876,6 +1876,25 @@ function openDetailModal(entry){
       <div class="block-row">
         <div class="meta-field"><label>Giocatore</label><input type="text" id="editEntryPlayer" value="${escXml(entry.player||'')}"></div>
         <div class="meta-field"><label>Data</label><input type="date" id="editEntryDate" value="${entry.date||''}"></div>
+        <div class="meta-field"><label>Tipo sessione</label>
+          <select id="editEntryType">
+            <option value="partita" ${entry.rhythmBadge==='partita'?'selected':''}>Partita / gioco libero</option>
+            <option value="fartlek" ${entry.rhythmBadge==='fartlek'?'selected':''}>Fartlek</option>
+            <option value="ripetute" ${entry.rhythmBadge==='ripetute'?'selected':''}>Ripetute</option>
+            <option value="continua" ${entry.rhythmBadge==='continua'?'selected':''}>Corsa continua</option>
+            <option value="insufficienti" ${(!entry.rhythmBadge||entry.rhythmBadge==='insufficienti')?'selected':''}>Non classificato</option>
+          </select>
+        </div>
+      </div>
+      <div class="block-row" style="margin-top:10px;">
+        <div class="meta-field"><label>Durata (min)</label><input type="number" min="0" step="0.1" id="editEntryDuration" value="${entry.duration!=null?(entry.duration/60).toFixed(1):''}"></div>
+        <div class="meta-field"><label>Distanza (m)</label><input type="number" min="0" id="editEntryDistance" value="${entry.distance ?? ''}"></div>
+        <div class="meta-field"><label>Calorie</label><input type="number" min="0" id="editEntryCalories" value="${entry.calories ?? ''}"></div>
+      </div>
+      <div class="block-row" style="margin-top:10px;">
+        <div class="meta-field"><label>FC media</label><input type="number" min="0" id="editEntryAvgHR" value="${entry.avgHR ?? ''}"></div>
+        <div class="meta-field"><label>FC max sessione</label><input type="number" min="0" id="editEntryMaxHR" value="${entry.maxHR ?? ''}"></div>
+        <div class="meta-field"><label>Vel. max (km/h)</label><input type="number" min="0" step="0.1" id="editEntryMaxSpeed" value="${entry.maxSpeed ?? ''}"></div>
       </div>
       <div style="margin-top:10px;">
         <label style="display:block;margin-bottom:6px;font-size:12px;color:var(--chalk-dim);">RPE</label>
@@ -1894,10 +1913,28 @@ function openDetailModal(entry){
     const newDate = document.getElementById('editEntryDate').value;
     if(!newPlayer){ alert('Il nome del giocatore non può essere vuoto.'); return; }
     if(!newDate){ alert('Seleziona una data.'); return; }
+    const newDurationMin = parseFloat(document.getElementById('editEntryDuration').value);
+    const newDurationSec = (newDurationMin>0) ? newDurationMin*60 : entry.duration;
+    const newDistance = parseFloat(document.getElementById('editEntryDistance').value);
+    const newCalories = parseFloat(document.getElementById('editEntryCalories').value);
+    const newAvgHR = parseFloat(document.getElementById('editEntryAvgHR').value);
+    const newMaxHR = parseFloat(document.getElementById('editEntryMaxHR').value);
+    const newMaxSpeed = parseFloat(document.getElementById('editEntryMaxSpeed').value);
+    const newBadge = document.getElementById('editEntryType').value;
     const updated = {
-      ...entry, player: newPlayer, date: newDate, rpe: editRpeValue,
-      srpe: (editRpeValue!=null && entry.duration) ? editRpeValue * (entry.duration/60) : entry.srpe,
+      ...entry,
+      player: newPlayer, date: newDate,
+      rpe: editRpeValue,
+      duration: newDurationSec,
+      distance: isFinite(newDistance) ? newDistance : entry.distance,
+      calories: isFinite(newCalories) ? newCalories : entry.calories,
+      avgHR: isFinite(newAvgHR) ? newAvgHR : entry.avgHR,
+      maxHR: isFinite(newMaxHR) ? newMaxHR : entry.maxHR,
+      maxSpeed: isFinite(newMaxSpeed) ? newMaxSpeed : entry.maxSpeed,
+      rhythmBadge: newBadge,
     };
+    updated.srpe = (editRpeValue!=null && updated.duration) ? editRpeValue * (updated.duration/60) : entry.srpe;
+    if(updated.avgHR && updated.maxHRSetting) updated.speedHrIndex = updated.avgSpeed / (updated.avgHR/updated.maxHRSetting);
     await dbPut(updated);
     try{ await writeEntryToCloud(updated); }catch(err){ console.error(err); alert('Salvato in locale, ma non sono riuscito a sincronizzare con Cloudflare: '+err.message); }
     await refreshHistory();
