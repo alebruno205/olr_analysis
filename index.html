@@ -361,7 +361,7 @@
 
   <div class="folder-bar" id="folderBar">
     <div class="folder-status" id="folderStatus">Connessione a Cloudflare…</div>
-    <div class="folder-btns"><button class="btn-ghost" id="reloadCloudBtn">Ricarica dal cloud</button></div>
+    <div class="folder-btns"><button class="btn-ghost" id="reloadCloudBtn">Ricarica dal cloud</button><button class="btn-ghost" id="cloudSummaryBtn">Riepilogo cloud</button></div>
   </div>
 
   <div class="dropzone" id="dropzone">
@@ -1924,9 +1924,33 @@ async function refreshHistory(){
   list.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', async e => {
     const id=e.target.dataset.del, entry=entries.find(en=>en.id===id);
     if(!entry)return;
-    if(!confirm(`Vuoi eliminare definitivamente la sessione di ${entry.player||'questo giocatore'} del ${entry.date||'giorno selezionato'}?\n\nVerrà eliminata anche da Cloudflare.`))return;
-    try{await deleteEntryFile(entry);await dbDelete(id);await refreshHistory();alert('Sessione eliminata.');}
-    catch(err){alert('Impossibile eliminare da Cloudflare: '+err.message+'\nIl dato locale non è stato cancellato.');}
+
+    const allForDel = await dbGetAll();
+    const linkedTraining = allForDel.find(en =>
+      isTrainingEntry(en) && en.player === entry.player && en.date === entry.date
+    );
+
+    let msg = `Vuoi eliminare definitivamente la sessione di ${entry.player||'questo giocatore'} del ${entry.date||'giorno selezionato'}?\n\nVerrà eliminata anche da Cloudflare.`;
+    if(linkedTraining){
+      msg += `\n\nÈ collegata anche una scheda RPE/allenamento per la stessa data: verrà eliminata anch'essa.`;
+    }
+    if(!confirm(msg))return;
+
+    try{
+      await deleteEntryFile(entry);
+      await dbDelete(id);
+
+      if(linkedTraining){
+        await deleteEntryFile(linkedTraining);
+        await dbDelete(linkedTraining.id);
+      }
+
+      await refreshHistory();
+      await refreshTrainingList();
+      alert('Sessione eliminata.' + (linkedTraining ? ' Eliminata anche la scheda RPE/allenamento collegata.' : ''));
+    } catch(err){
+      alert('Impossibile eliminare da Cloudflare: '+err.message+'\nIl dato locale non è stato cancellato.');
+    }
   }));
   list.querySelectorAll('[data-detail]').forEach(btn => btn.addEventListener('click', e => {
     const entry = entries.find(en => en.id === e.target.dataset.detail);
@@ -2418,6 +2442,14 @@ document.getElementById('teamSource').addEventListener('change', () => { teamSel
 document.getElementById('teamViewMode').addEventListener('change', renderTeam);
 document.getElementById('teamGroupMode').addEventListener('change', () => { teamSelectedGroups = new Set(); renderTeam(); });
 document.getElementById('reloadCloudBtn').addEventListener('click', loadFromCloud);
+document.getElementById('cloudSummaryBtn').addEventListener('click', async () => {
+  const all = await dbGetAll();
+  const sessions = all.filter(isSessionEntry).length;
+  const trainings = all.filter(isTrainingEntry).length;
+  const plans = all.filter(isPlanEntry).length;
+  alert(`Voci totali (locale, sincronizzate col cloud): ${all.length}\n` +
+    `- Sessioni .fit: ${sessions}\n- Schede RPE/allenamento: ${trainings}\n- Piani mister: ${plans}`);
+});
 document.getElementById('teamPlayerSelect').addEventListener('change', e => { teamSelectedPlayer = e.target.value; renderTeam(); });
 
 
@@ -2803,6 +2835,20 @@ document.getElementById('regSaveBtn').addEventListener('click', async () => {
   if(regState.rpe===null){ alert('Indica l\'RPE della sessione.'); return; }
   if(regState.fatigue===null){ alert('Indica l\'affaticamento residuo passato.'); return; }
 
+  // FIX: evita di creare una nuova entry kind:'training' per lo stesso
+  // giocatore/data quando la form non è in modalità modifica.
+  let targetId = regEditId;
+  if(!targetId){
+    const allEntriesForDup = await dbGetAll();
+    const existingForDup = allEntriesForDup.find(en =>
+      isTrainingEntry(en) && en.player === player && en.date === date
+    );
+    if(existingForDup){
+      if(!confirm(`Esiste già una registrazione per ${player} del ${date}. Vuoi sovrascriverla con questi dati?`)) return;
+      targetId = existingForDup.id;
+    }
+  }
+
   let exercises = null;
   if(regType === 'allenamento'){
     exercises = {
@@ -2827,7 +2873,7 @@ document.getElementById('regSaveBtn').addEventListener('click', async () => {
   }
 
   const entry = {
-    id: regEditId || uuid(), kind:'training', date, player, type: regType,
+    id: targetId || uuid(), kind:'training', date, player, type: regType,
     rpe: regState.rpe, fatigue: regState.fatigue,
     notes: document.getElementById('regNotes').value.trim(),
     exercises,
