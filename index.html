@@ -2056,10 +2056,31 @@ async function openDetailModal(entry){
     editFatigueValue = parseInt(btn.dataset.editfatigue, 10);
     document.querySelectorAll('#editEntryFatiguePills .rpe-pill').forEach(b => b.classList.toggle('active', b===btn));
   }));
-  document.querySelectorAll('#editTrainingTypePills .tt-pill').forEach(btn => btn.addEventListener('click', () => {
+  document.querySelectorAll('#editTrainingTypePills .tt-pill').forEach(btn => btn.addEventListener('click', async () => {
+    const previousType = editTrainingType;
     editTrainingType = btn.dataset.etype;
     document.querySelectorAll('#editTrainingTypePills .tt-pill').forEach(b => b.classList.toggle('active', b===btn));
     document.getElementById('editExercisesWrap').style.display = editTrainingType==='allenamento' ? 'block' : 'none';
+
+    if(editTrainingType === 'allenamento' && previousType === 'partita'){
+      const date = document.getElementById('editEntryDate').value;
+      const plan = await getPlanForDate(date);
+      if(plan && (plan.fartlek || plan.ripetute || plan.velocita)){
+        document.getElementById('editHasFartlek').checked = !!plan.fartlek;
+        document.getElementById('editHasRipetute').checked = !!plan.ripetute;
+        document.getElementById('editHasVelocita').checked = !!plan.velocita;
+        document.getElementById('editFartlekForm').style.display = plan.fartlek ? 'block' : 'none';
+        document.getElementById('editRipeteteForm').style.display = plan.ripetute ? 'block' : 'none';
+        document.getElementById('editVelocitaForm').style.display = plan.velocita ? 'block' : 'none';
+        const fd = plan.fartlekDetail || {};
+        document.getElementById('editFartlekTotal').value = fd.totalMin ?? '';
+        document.getElementById('editFartlekFast').value = fd.fastSec ?? '';
+        document.getElementById('editFartlekSlow').value = fd.slowSec ?? '';
+        document.getElementById('editFartlekRepsHint').textContent = 'Ripetizioni stimate: ' + (calcFartlekReps(fd.totalMin, fd.fastSec, fd.slowSec) ?? '—');
+        fillBlocksFromData('editRipBlocks', plan.ripeteteDetail, RIPETUTE_FIELDS);
+        fillBlocksFromData('editVelBlocks', plan.velocitaDetail, VELOCITA_FIELDS);
+      }
+    }
   }));
   document.getElementById('editHasFartlek').addEventListener('change', e => { document.getElementById('editFartlekForm').style.display = e.target.checked?'block':'none'; });
   document.getElementById('editHasRipetute').addEventListener('change', e => { document.getElementById('editRipeteteForm').style.display = e.target.checked?'block':'none'; });
