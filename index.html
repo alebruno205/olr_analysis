@@ -1485,7 +1485,7 @@ function renderPlayers(){
     const v = parseFloat(e.target.value);
     if(v>0){ p.vamSetting = v; p.vamCustomized = true; computeHRMetrics(p); renderAll(); }
   }));
-  list.querySelectorAll('.rpe-pill').forEach(btn => btn.addEventListener('click', e => {
+  list.querySelectorAll('.rpe-pill[data-rpe]').forEach(btn => btn.addEventListener('click', e => {
     const p = players.find(p=>p.id===e.target.dataset.id); if(!p) return;
     p.rpe = parseInt(e.target.dataset.rpe,10);
     p.srpe = p.rpe!=null ? p.rpe*(p.duration/60) : null;
@@ -1849,7 +1849,6 @@ function sessionLinkBadgeHTML(s){
 }
 
 async function refreshHistory(){
-  const {trainingByKey} = await getLinkMaps();
   const allEntries = (await dbGetAll()).filter(isSessionEntry);
   window.__historyCache = allEntries;
   const section = document.getElementById('historySection');
@@ -1902,10 +1901,7 @@ async function refreshHistory(){
 
   list.innerHTML = groupNames.map(gname => {
     const es = groups[gname].sort((a,b) => a.player.localeCompare(b.player));
-    const rows = es.map(e => {
-      const linked = trainingByKey[linkKey(e.player, e.date)];
-      return `
-      <div class="history-entry-wrap">
+    const rows = es.map(e => `
       <div class="history-entry" data-hid="${e.id}">
         <div class="hname">${e.player}</div>
         <div class="hstats">
@@ -1917,10 +1913,7 @@ async function refreshHistory(){
         </div>
         <button class="details-btn" data-detail="${e.id}">Dettagli</button>
         <button class="del" data-del="${e.id}" title="Elimina">✕</button>
-      </div>
-      ${trainingLinkBadgeHTML(linked)}
-      </div>`;
-    }).join('');
+      </div>`).join('');
     return `<div class="history-group">
       <div class="history-group-title">${gname}</div>
       ${rows}
@@ -1946,13 +1939,21 @@ async function refreshHistory(){
 }
 
 /* ---------------- Modale dettaglio singolo allenamento (dallo storico) ---------------- */
-function openDetailModal(entry){
+async function openDetailModal(entry){
   const zones = HR_ZONES.map(z => ({...z}));
   const modal = document.getElementById('detailModal');
   const card = document.getElementById('detailModalCard');
-  const rhythmBadge = entry.rhythmBadge || 'insufficienti';
+  const all = await dbGetAll();
+  const linked = all.find(e => isTrainingEntry(e) && e.player === entry.player && e.date === entry.date) || null;
+
   let editRpeValue = entry.rpe ?? null;
+  let editFatigueValue = linked ? (linked.fatigue ?? null) : null;
+  let editTrainingType = linked ? linked.type : (entry.rhythmBadge==='partita' ? 'partita' : 'allenamento');
+  const ex = (linked && linked.exercises) ? linked.exercises : {fartlek:null, ripetute:[], velocita:[]};
+
   const rpePillsHtml = Array.from({length:10},(_,i)=>i+1).map(n=>`<button type="button" class="rpe-pill ${entry.rpe===n?'active':''}" data-editrpe="${n}">${n}</button>`).join('');
+  const fatiguePillsHtml = Array.from({length:10},(_,i)=>i+1).map(n=>`<button type="button" class="rpe-pill ${editFatigueValue===n?'active':''}" data-editfatigue="${n}">${n}</button>`).join('');
+
   card.innerHTML = `
     <button class="modal-close" id="detailModalClose">✕</button>
     <div class="modal-title">${entry.player}</div>
@@ -1973,12 +1974,13 @@ function openDetailModal(entry){
     <div class="zone-block"><h4>Fasce di frequenza cardiaca (% FC max = ${entry.maxHRSetting||'—'} bpm)</h4>${zoneBarHTML(zones, entry.hrZonePct||{})}</div>
     <div class="zone-block"><h4>Fasce di velocità</h4>${zoneBarHTML(SPEED_ZONES, entry.spZonePct||{})}</div>
     <div class="zone-block"><h4>Andamento FC e velocità nella sessione</h4>${renderHrSpeedChart(entry.chartSeries)}</div>
+
     <div class="zone-block">
       <h4>Modifica dati registrazione</h4>
       <div class="block-row">
         <div class="meta-field"><label>Giocatore</label><input type="text" id="editEntryPlayer" value="${escXml(entry.player||'')}"></div>
         <div class="meta-field"><label>Data</label><input type="date" id="editEntryDate" value="${entry.date||''}"></div>
-        <div class="meta-field"><label>Tipo sessione</label>
+        <div class="meta-field"><label>Tipo sessione (analisi ritmo)</label>
           <select id="editEntryType">
             <option value="partita" ${entry.rhythmBadge==='partita'?'selected':''}>Partita / gioco libero</option>
             <option value="fartlek" ${entry.rhythmBadge==='fartlek'?'selected':''}>Fartlek</option>
@@ -2002,14 +2004,82 @@ function openDetailModal(entry){
         <label style="display:block;margin-bottom:6px;font-size:12px;color:var(--chalk-dim);">RPE</label>
         <div class="rpe-pills" id="editEntryRpePills">${rpePillsHtml}</div>
       </div>
+    </div>
+
+    <div class="zone-block">
+      <h4>Registrato dal giocatore</h4>
+      <div class="meta-field" style="margin-bottom:14px;">
+        <label>Tipo giornata</label>
+        <div class="tt-pills" id="editTrainingTypePills">
+          <button type="button" class="tt-pill ${editTrainingType==='allenamento'?'active':''}" data-etype="allenamento">Allenamento</button>
+          <button type="button" class="tt-pill ${editTrainingType==='partita'?'active':''}" data-etype="partita">Partita</button>
+        </div>
+      </div>
+      <div id="editExercisesWrap" style="display:${editTrainingType==='allenamento'?'block':'none'};">
+        <div class="team-toolbar-row" style="margin-bottom:14px;">
+          <label class="check-row"><input type="checkbox" id="editHasFartlek" ${ex.fartlek?'checked':''}> Fartlek</label>
+          <label class="check-row"><input type="checkbox" id="editHasRipetute" ${ex.ripetute&&ex.ripetute.length?'checked':''}> Ripetute lunghe</label>
+          <label class="check-row"><input type="checkbox" id="editHasVelocita" ${ex.velocita&&ex.velocita.length?'checked':''}> Velocità (scatti)</label>
+        </div>
+        <div class="exercise-block" id="editFartlekForm" style="display:${ex.fartlek?'block':'none'};">
+          <h4>Fartlek</h4>
+          <div class="block-row">
+            <div class="meta-field"><label>Durata totale (min)</label><input type="number" min="1" id="editFartlekTotal" value="${ex.fartlek?.totalMin??''}"></div>
+            <div class="meta-field"><label>Durata set veloce (sec)</label><input type="number" min="1" id="editFartlekFast" value="${ex.fartlek?.fastSec??''}"></div>
+            <div class="meta-field"><label>Durata set lento (sec)</label><input type="number" min="1" id="editFartlekSlow" value="${ex.fartlek?.slowSec??''}"></div>
+          </div>
+          <div class="calc-hint" id="editFartlekRepsHint">Ripetizioni stimate: ${calcFartlekReps(ex.fartlek?.totalMin, ex.fartlek?.fastSec, ex.fartlek?.slowSec) ?? '—'}</div>
+        </div>
+        <div class="exercise-block" id="editRipeteteForm" style="display:${ex.ripetute&&ex.ripetute.length?'block':'none'};">
+          <h4>Ripetute lunghe</h4>
+          <div id="editRipBlocks"></div>
+          <button type="button" class="btn-ghost add-block-btn" id="editAddRipBlock">+ Aggiungi serie</button>
+        </div>
+        <div class="exercise-block" id="editVelocitaForm" style="display:${ex.velocita&&ex.velocita.length?'block':'none'};">
+          <h4>Velocità (scatti)</h4>
+          <div id="editVelBlocks"></div>
+          <button type="button" class="btn-ghost add-block-btn" id="editAddVelBlock">+ Aggiungi serie</button>
+        </div>
+      </div>
+      <div class="meta-field" style="margin:14px 0;">
+        <label>Affaticamento residuo passato (1=fresco, 10=molto affaticato)</label>
+        <div class="rpe-pills" id="editEntryFatiguePills">${fatiguePillsHtml}</div>
+      </div>
+      <div class="meta-field">
+        <label>Note (facoltative)</label>
+        <input type="text" id="editEntryNotes" value="${escXml((linked&&linked.notes)||'')}">
+      </div>
       <button class="btn-primary" id="editEntrySaveBtn" style="margin-top:14px;">Salva modifiche</button>
     </div>`;
+
+  fillBlocksFromData('editRipBlocks', ex.ripetute, RIPETUTE_FIELDS);
+  fillBlocksFromData('editVelBlocks', ex.velocita, VELOCITA_FIELDS);
+
   modal.classList.remove('hidden');
   document.getElementById('detailModalClose').addEventListener('click', closeDetailModal);
   document.querySelectorAll('#editEntryRpePills .rpe-pill').forEach(btn => btn.addEventListener('click', () => {
     editRpeValue = parseInt(btn.dataset.editrpe, 10);
     document.querySelectorAll('#editEntryRpePills .rpe-pill').forEach(b => b.classList.toggle('active', b===btn));
   }));
+  document.querySelectorAll('#editEntryFatiguePills .rpe-pill').forEach(btn => btn.addEventListener('click', () => {
+    editFatigueValue = parseInt(btn.dataset.editfatigue, 10);
+    document.querySelectorAll('#editEntryFatiguePills .rpe-pill').forEach(b => b.classList.toggle('active', b===btn));
+  }));
+  document.querySelectorAll('#editTrainingTypePills .tt-pill').forEach(btn => btn.addEventListener('click', () => {
+    editTrainingType = btn.dataset.etype;
+    document.querySelectorAll('#editTrainingTypePills .tt-pill').forEach(b => b.classList.toggle('active', b===btn));
+    document.getElementById('editExercisesWrap').style.display = editTrainingType==='allenamento' ? 'block' : 'none';
+  }));
+  document.getElementById('editHasFartlek').addEventListener('change', e => { document.getElementById('editFartlekForm').style.display = e.target.checked?'block':'none'; });
+  document.getElementById('editHasRipetute').addEventListener('change', e => { document.getElementById('editRipeteteForm').style.display = e.target.checked?'block':'none'; });
+  document.getElementById('editHasVelocita').addEventListener('change', e => { document.getElementById('editVelocitaForm').style.display = e.target.checked?'block':'none'; });
+  ['editFartlekTotal','editFartlekFast','editFartlekSlow'].forEach(id => document.getElementById(id).addEventListener('change', () => {
+    const t = parseFloat(document.getElementById('editFartlekTotal').value), f = parseFloat(document.getElementById('editFartlekFast').value), s = parseFloat(document.getElementById('editFartlekSlow').value);
+    document.getElementById('editFartlekRepsHint').textContent = 'Ripetizioni stimate: ' + (calcFartlekReps(t,f,s) ?? '—');
+  }));
+  document.getElementById('editAddRipBlock').addEventListener('click', () => addSubBlock('editRipBlocks', RIPETUTE_FIELDS));
+  document.getElementById('editAddVelBlock').addEventListener('click', () => addSubBlock('editVelBlocks', VELOCITA_FIELDS));
+
   document.getElementById('editEntrySaveBtn').addEventListener('click', async () => {
     const newPlayer = document.getElementById('editEntryPlayer').value.trim();
     const newDate = document.getElementById('editEntryDate').value;
@@ -2039,6 +2109,29 @@ function openDetailModal(entry){
     if(updated.avgHR && updated.maxHRSetting) updated.speedHrIndex = updated.avgSpeed / (updated.avgHR/updated.maxHRSetting);
     await dbPut(updated);
     try{ await writeEntryToCloud(updated); }catch(err){ console.error(err); alert('Salvato in locale, ma non sono riuscito a sincronizzare con Cloudflare: '+err.message); }
+
+    const hasFartlek = document.getElementById('editHasFartlek').checked;
+    const hasRipetute = document.getElementById('editHasRipetute').checked;
+    const hasVelocita = document.getElementById('editHasVelocita').checked;
+    const newExercises = editTrainingType==='allenamento' ? {
+      fartlek: hasFartlek ? {
+        totalMin: parseFloat(document.getElementById('editFartlekTotal').value) || null,
+        fastSec: parseFloat(document.getElementById('editFartlekFast').value) || null,
+        slowSec: parseFloat(document.getElementById('editFartlekSlow').value) || null,
+        reps: calcFartlekReps(parseFloat(document.getElementById('editFartlekTotal').value), parseFloat(document.getElementById('editFartlekFast').value), parseFloat(document.getElementById('editFartlekSlow').value)),
+      } : null,
+      ripetute: hasRipetute ? readSubBlocks('editRipBlocks', RIPETUTE_FIELDS) : [],
+      velocita: hasVelocita ? readSubBlocks('editVelBlocks', VELOCITA_FIELDS) : [],
+    } : null;
+    const trainingEntry = {
+      id: linked ? linked.id : uuid(), kind:'training', date:newDate, player:newPlayer, type: editTrainingType,
+      rpe: editRpeValue, fatigue: editFatigueValue,
+      notes: document.getElementById('editEntryNotes').value.trim(),
+      exercises: newExercises, savedAt: Date.now(),
+    };
+    await dbPut(trainingEntry);
+    try{ await writeEntryToCloud(trainingEntry); }catch(err){ console.error(err); }
+
     await refreshHistory();
     closeDetailModal();
   });
