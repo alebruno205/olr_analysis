@@ -1225,17 +1225,25 @@ async function cloudRequest(path='',options={}){
 async function writeEntryToCloud(entry){ return cloudRequest('/entries/'+encodeURIComponent(entry.id),{method:'PUT',body:JSON.stringify(entry)}); }
 let cloudLoadPromise=null;
 async function loadFromCloud(opts={}){
-  if(cloudLoadPromise && !opts.force) return cloudLoadPromise;
+  if(cloudLoadPromise) return cloudLoadPromise;
   cloudLoadPromise=(async()=>{
-    if(!cloudConfigured()){updateCloudStatus('Cloudflare non configurato: inserisci l’URL del Worker nel file HTML.',true);return 0;}
+    if(!cloudConfigured()){updateCloudStatus('Cloudflare non configurato.',true);return 0;}
     updateCloudStatus('Sincronizzazione Cloudflare…');
     try{
       const entries=await cloudRequest('/entries');
-      let count=0;
-      for(const entry of (entries||[])){ if(!entry.id) entry.id=uuid(); await dbPut(entry); count++; }
+      const list=Array.isArray(entries)?entries:[];
+      const db=await openDB();
+      await new Promise((resolve,reject)=>{
+        const tx=db.transaction(STORE,'readwrite'); const store=tx.objectStore(STORE);
+        for(const entry of list){ if(entry && entry.id) store.put(entry); }
+        tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error);
+      });
+      // Aggiorna una sola volta le sezioni che dipendono dal cloud.
       await refreshHistory();
-      updateCloudStatus(`${count} elementi sincronizzati da Cloudflare.`);
-      return count;
+      await refreshReport();
+      await refreshRiskPage();
+      updateCloudStatus(`${list.length} elementi sincronizzati da Cloudflare.`);
+      return list.length;
     }catch(err){
       console.error(err);
       updateCloudStatus(`Cloudflare non raggiungibile: ${err.message}`,true);
@@ -2467,34 +2475,6 @@ document.getElementById('teamSource').addEventListener('change', () => { teamSel
 document.getElementById('teamViewMode').addEventListener('change', renderTeam);
 document.getElementById('teamGroupMode').addEventListener('change', () => { teamSelectedGroups = new Set(); renderTeam(); });
 document.getElementById('reloadCloudBtn').addEventListener('click', () => loadFromCloud({force:true}));
-document.getElementById('cloudSummaryBtn').addEventListener('click', async () => {
-  const all = await dbGetAll();
-  const sessions = all.filter(isSessionEntry).length;
-  const trainings = all.filter(isTrainingEntry).length;
-  const plans = all.filter(isPlanEntry).length;
-  alert(`Voci totali (locale, sincronizzate col cloud): ${all.length}\n` +
-    `- Sessioni .fit: ${sessions}\n- Schede RPE/allenamento: ${trainings}\n- Piani mister: ${plans}`);
-});
-document.getElementById('cleanupFitTrainingBtn').addEventListener('click', async () => {
-  const all = await dbGetAll();
-  const sessions = all.filter(isSessionEntry);
-  const trainings = all.filter(isTrainingEntry);
-  const duplicates = trainings.filter(t => sessions.some(s => linkKey(s.player,s.date) === linkKey(t.player,t.date)));
-  if(!duplicates.length){ alert('Nessuna vecchia scheda RPE/allenamento collegata a una sessione .fit.'); return; }
-  if(!confirm(`Trovate ${duplicates.length} vecchie schede RPE/allenamento associate a sessioni .fit.\n\nI dati RPE/allenamento verranno conservati nella sessione .fit e la scheda separata verrà eliminata.\n\nContinuare?`)) return;
-  for(const t of duplicates){
-    const session = sessions.find(x => linkKey(x.player,x.date) === linkKey(t.player,t.date));
-    if(session){
-      const merged = {...session, rpe:t.rpe ?? session.rpe, fatigue:t.fatigue ?? session.fatigue, trainingType:t.type || session.trainingType, notes:t.notes || session.notes || '', exercises:t.exercises || session.exercises || null};
-      await dbPut(merged);
-      try{ await writeEntryToCloud(merged); }catch(err){ console.error(err); }
-    }
-    try{ await deleteEntryFile(t); }catch(err){ console.error(err); }
-    await dbDelete(t.id);
-  }
-  await refreshHistory(); await refreshTrainingList();
-  alert(`Pulizia completata: eliminate ${duplicates.length} vecchie schede duplicate.`);
-});
 document.getElementById('teamPlayerSelect').addEventListener('change', e => { teamSelectedPlayer = e.target.value; renderTeam(); });
 
 
@@ -2550,14 +2530,15 @@ function switchView(view){
   document.getElementById(VIEW_IDS[view]).classList.add('active');
   window.scrollTo({top:0, behavior:'smooth'});
 }
-viewSwitcher.addEventListener('change', e => {
+viewSwitcher.addEventListener('change', async e => {
   const target = e.target.value;
+  if(!VIEW_IDS[target]) return;
   switchView(target);
-  if(target === 'mister') refreshMisterPlanList();
-  if(target === 'registra') refreshTrainingList();
-  if(target === 'dashboard') refreshHistory();
-  if(target === 'report') refreshReport();
-  if(target === 'risk') refreshRiskPage();
+  if(target === 'mister') await refreshMisterPlanList();
+  else if(target === 'registra') await refreshTrainingList();
+  else if(target === 'dashboard') await refreshHistory();
+  else if(target === 'report') await refreshReport();
+  else if(target === 'risk') await refreshRiskPage();
 });
 
 /* ---------------- Helpers comuni: select giocatore con "Altro..." ---------------- */
@@ -3403,23 +3384,33 @@ async function renderRiskPage(player, all){
   if(plannedKeys.ripetute) plannedNames.push('Ripetute');
   if(plannedKeys.velocita) plannedNames.push('Velocità/scatti');
   const plannedHigh=plannedKeys.fartlek||plannedKeys.ripetute||plannedKeys.velocita;
-  let decision='Completo'; let decisionClass='push'; let decisionText='Può svolgere il piano previsto, mantenendo il normale controllo dell’RPE.';
-  if(riskScore>=70){
-    if(plannedHigh){ decision='Riposo'; decisionClass='riposo'; decisionText='Il prossimo allenamento contiene lavoro ad alta intensità, ma il carico individuale è alto: per questo giocatore è prudente non eseguire il blocco intenso. Preferire riposo completo oppure recupero molto leggero se concordato con lo staff.'; }
-    else { decision='Blando'; decisionClass='blando'; decisionText='Il piano non contiene un blocco intenso, ma il carico individuale è alto: svolgere solo lavoro blando/tecnico e recupero, senza spingere.'; }
-  } else if(riskScore>=45){
-    if(plannedHigh){ decision='Blando'; decisionClass='blando'; decisionText='Il piano contiene alta intensità e il carico individuale richiede cautela: ridurre volume/intensità del blocco veloce e monitorare RPE e affaticamento.'; }
-    else { decision='Completo'; decisionClass='push'; decisionText='Può svolgere il piano previsto, ma senza aggiungere ulteriore lavoro intenso oltre a quello programmato.'; }
+  const plannedRiskNotes=[];
+  if(nextPlan){
+    if(plannedKeys.velocita && (riskScore>=45 || typeCounts.velocita>=2)) plannedRiskNotes.push('evitare o ridurre la parte di velocità/scatti');
+    if(plannedKeys.ripetute && (riskScore>=55 || typeCounts.ripetute>=2)) plannedRiskNotes.push('evitare o ridurre le ripetute');
+    if(plannedKeys.fartlek && (riskScore>=55 || typeCounts.fartlek>=3)) plannedRiskNotes.push('evitare il Fartlek intenso o trasformarlo in corsa blanda continua');
+  }
+  let decision='Completo', decisionClass='push', decisionText='Può svolgere il piano previsto, mantenendo il normale controllo dell’RPE.';
+  if(riskScore>=75){
+    decision='Completo riposo'; decisionClass='riposo';
+    decisionText=plannedRiskNotes.length ? `Il rischio è alto e il prossimo piano contiene ${plannedRiskNotes.join(', ')}. Per questo giocatore è prudente non svolgere la seduta intensa e privilegiare recupero completo, salvo diversa indicazione dello staff.` : 'Il rischio è alto: evitare di aggiungere carico e privilegiare recupero completo, salvo diversa indicazione dello staff.';
+  } else if(riskScore>=55){
+    decision='Blando'; decisionClass='blando';
+    decisionText=plannedRiskNotes.length ? `Il rischio è moderato-alto: ${plannedRiskNotes.join(', ')}. Mantenere solo il lavoro tecnico/aerobico leggero e ridurre nettamente il carico intenso.` : 'Il rischio è moderato-alto: svolgere il piano a bassa intensità, senza aggiungere lavoro intenso.';
+  } else if(riskScore>=40){
+    decision='Blando'; decisionClass='blando';
+    decisionText=plannedRiskNotes.length ? `Il rischio richiede prudenza: ${plannedRiskNotes.join(', ')}. Ridurre volume e intensità del blocco veloce e non aggiungere lavoro extra.` : 'Può allenarsi, ma a intensità controllata e senza aggiungere lavoro extra.';
   } else {
-    if(plannedHigh){ decision='Spingere'; decisionClass='push'; decisionText='Il carico individuale è attualmente gestibile: può seguire il lavoro intenso previsto dal mister, senza aggiungere carico extra non programmato.'; }
-    else { decision='Completo'; decisionClass='push'; decisionText='Può svolgere normalmente il piano previsto.'; }
+    decision=plannedHigh?'Spingere':'Completo'; decisionClass='push';
+    decisionText=plannedHigh ? 'Il carico è attualmente gestibile: può seguire il lavoro intenso previsto dal mister, senza aggiungere carico extra non programmato.' : 'Può svolgere normalmente il piano previsto.';
   }
   const nextPlanHTML=nextPlan ? `<div class="risk-next-plan">
     <div class="risk-head"><span class="risk-name">Prossimo allenamento previsto dal mister</span><span class="te-type">${nextPlanDate}</span></div>
     <div style="margin-top:8px;font-size:13px;"><b>${plannedNames.length?plannedNames.join(' · '):'Seduta senza esercitazioni ad alta intensità specificate'}</b>${nextPlan.note?` · ${escXml(nextPlan.note)}`:''}</div>
     <div class="decision ${decisionClass}">${decision}</div>
     <div style="font-size:12.5px;line-height:1.6;color:var(--chalk-dim);">${decisionText}</div>
-    ${riskScore>=45 && plannedHigh ? `<ul><li>Il piano del mister resta invariato per la squadra.</li><li>La modifica suggerita riguarda solo ${escXml(player)} in base al suo carico individuale.</li><li>Se compaiono dolore, limitazione del movimento o sintomi nuovi, non usare questo indice per decidere: serve valutazione dello staff sanitario.</li></ul>`:''}
+    ${plannedRiskNotes.length ? `<div style="margin-top:10px;padding:10px;border-left:3px solid var(--coral);font-size:12.5px;"><b>Modifica consigliata per ${escXml(player)}:</b> ${plannedRiskNotes.join('; ')}.</div>`:''}
+    <ul><li>Il piano del mister resta invariato per la squadra.</li><li>Questa è una raccomandazione individuale basata sui dati disponibili.</li><li>Dolore o sintomi nuovi richiedono valutazione dello staff sanitario.</li></ul>
   </div>` : `<div class="risk-next-plan"><b>Nessun piano futuro del mister trovato.</b><div style="font-size:12px;color:var(--chalk-dim);margin-top:6px;">La raccomandazione viene quindi fatta solo sul carico individuale.</div><div class="decision ${decisionClass}">${decision}</div><div style="font-size:12.5px;color:var(--chalk-dim);">${decisionText}</div></div>`;
 
   el.innerHTML=`<div class="risk-card">\n    <div class="risk-head"><span class="risk-name">${escXml(player)}</span><span class="risk-badge ${riskClass}">Indice ${riskScore}/100 · ${riskLabel}</span></div>\n    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:12px;">\n      <div class="stat-card"><div class="stat-label">STATO DI FORMA</div><div class="stat-value">${form==null?'—':form.toFixed(0)}</div><div class="stat-sub">${formLabel}${form!=null?' · ultime 5 prestazioni':''}</div></div>\n      <div class="stat-card"><div class="stat-label">CARICO 7 GIORNI</div><div class="stat-value">${Math.round(acute7)}</div><div class="stat-sub">sRPE</div></div>\n      <div class="stat-card"><div class="stat-label">ACWR</div><div class="stat-value">${acwr==null?'—':acwr.toFixed(2)}</div><div class="stat-sub">7 gg vs media 4 settimane</div></div>\n      <div class="stat-card"><div class="stat-label">ALTA INTENSITÀ</div><div class="stat-value">${hi7}</div><div class="stat-sub">giorni negli ultimi 7</div></div>\n    </div>\n    <div style="margin-top:16px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:rgba(0,0,0,.12);font-size:12px;line-height:1.65;color:var(--chalk-dim);">\n      <b style="color:var(--chalk);">Perché la tipologia conta:</b> velocità/scatti e ripetute hanno un peso maggiore; il Fartlek pesa in funzione della quota veloce; partite e giorni consecutivi intensi aumentano la densità. L'obiettivo non è evitare l'intensità, ma <b style="color:var(--chalk);">periodizzarla</b> e distribuire il recupero.\n    </div>\n    <div class="risk-advice ${riskClass==='low'?'ok':''}" style="margin-top:12px;">${advice}</div>\n  </div>\n  <div class="risk-card">\n    <div class="risk-head"><span class="risk-name">Fattori che stanno incidendo</span></div>\n    ${reasons.length?`<ul>${reasons.slice(-10).map(r=>`<li>${r}</li>`).join('')}</ul>`:'<div style="font-size:12.5px;color:var(--chalk-dim);">Nessun segnale importante rilevato nei dati disponibili.</div>'}\n  </div>\n  <div class="risk-card">\n    <div class="risk-head"><span class="risk-name">Tipologie ultime 4 settimane</span></div>\n    <div style="display:flex;gap:8px;flex-wrap:wrap;">${tags.length?tags.map(t=>`<span class="te-type">${t}</span>`).join(''):'<span style="color:var(--chalk-dim);font-size:12px;">Nessun dettaglio di tipologia disponibile.</span>'}</div>\n    <div style="margin-top:12px;font-size:12px;color:var(--chalk-dim);line-height:1.7;">Monotonia ${monotony==null?'—':monotony.toFixed(2)} · Strain ${strain==null?'—':Math.round(strain)} · ${consecutive} giorni intensi consecutivi · RPE medio ${avgRpe==null?'—':avgRpe.toFixed(1)} · Fatigue medio ${avgFat==null?'—':avgFat.toFixed(1)}</div>\n  </div>\n  <div class="plan-hint" style="margin-top:12px;"><b>Nota metodologica:</b> il punteggio è una stratificazione interna dell'app, non una probabilità di infortunio. La letteratura mostra che carico esterno/interno, storia di infortuni, recupero/benessere e caratteristiche neuromuscolari possono essere utili, ma i modelli disponibili sono ancora eterogenei e non sufficientemente validati per trasformare questi dati in una probabilità individuale affidabile. L'ACWR va quindi usato come indicatore di trend e non come soglia diagnostica.</div>`;
@@ -3428,7 +3419,16 @@ document.getElementById('reportPlayerSelect').addEventListener('change', refresh
 document.getElementById('reportWindowSelect').addEventListener('change', refreshReport);
 document.getElementById('riskPlayerSelect').addEventListener('change', async e => { const all=await dbGetAll(); await renderRiskPage(e.target.value, all); });
 
-(async()=>{ renderAll(); await refreshHistory(); await refreshRiskPage(); await loadFromCloud(); renderAll(); await refreshHistory(); await refreshRiskPage(); })();
+(async()=>{
+  try{
+    renderAll();
+    await refreshHistory();
+    await refreshReport();
+    await refreshRiskPage();
+    // Il cloud non deve bloccare l'apertura della pagina: parte in background.
+    loadFromCloud().catch(err=>console.error('Auto-sync Cloudflare',err));
+  }catch(err){ console.error('Avvio app',err); }
+})();
 </script>
 </body>
 </html>
