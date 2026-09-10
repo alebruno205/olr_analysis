@@ -354,6 +354,7 @@
       <option value="dashboard">📊 Dashboard squadra</option>
       <option value="mister">🧢 Piano mister</option>
       <option value="report">📈 Report partita/allenamenti</option>
+      <option value="risk">🩺 Stato di forma &amp; rischio infortunio</option>
     </select>
   </nav>
 
@@ -361,7 +362,7 @@
 
   <div class="folder-bar" id="folderBar">
     <div class="folder-status" id="folderStatus">Connessione a Cloudflare…</div>
-    <div class="folder-btns"><button class="btn-ghost" id="reloadCloudBtn">Ricarica dal cloud</button><button class="btn-ghost" id="cloudSummaryBtn">Riepilogo cloud</button><button class="btn-ghost" id="cleanupFitTrainingBtn">Pulisci vecchie schede .fit</button></div>
+    <div class="folder-btns"><button class="btn-ghost" id="reloadCloudBtn">Ricarica dal cloud</button></div>
   </div>
 
   <div class="dropzone" id="dropzone">
@@ -634,9 +635,19 @@
     <div id="reportSummary" class="plan-hint" style="display:none;"></div>
     <div id="reportContent"></div>
 
-    <div class="section-title" style="margin-top:40px;"><h2 style="font-size:18px;">Stato di forma &amp; rischio infortunio</h2></div>
-    <div id="riskSection"></div>
   </div><!-- /viewReport -->
+
+  <div id="viewRisk" class="app-view">
+    <div class="section-title" style="margin-top:12px;"><span class="num">05</span><h2>Stato di forma &amp; rischio infortunio</h2></div>
+    <p class="view-intro">Analisi individuale del carico e della successione delle tipologie di allenamento. L'indice è uno strumento di monitoraggio e non una diagnosi né una probabilità clinica di infortunio.</p>
+    <div class="team-summary" style="margin-bottom:22px;">
+      <div class="team-toolbar-row">
+        <label class="tt-label">Giocatore</label>
+        <select id="riskPlayerSelect"></select>
+      </div>
+    </div>
+    <div id="riskPageContent"></div>
+  </div><!-- /viewRisk -->
 
 </div>
 
@@ -2513,7 +2524,7 @@ function ensureAuthorized(){
 
 /* ---------------- Nav switching ---------------- */
 const viewSwitcher = document.getElementById('viewSwitcher');
-const VIEW_IDS = {dashboard:'viewDashboard', registra:'viewRegistra', mister:'viewMister', report:'viewReport'};
+const VIEW_IDS = {dashboard:'viewDashboard', registra:'viewRegistra', mister:'viewMister', report:'viewReport', risk:'viewRisk'};
 function switchView(view){
   Object.values(VIEW_IDS).forEach(id => document.getElementById(id).classList.remove('active'));
   document.getElementById(VIEW_IDS[view]).classList.add('active');
@@ -2521,7 +2532,7 @@ function switchView(view){
 }
 viewSwitcher.addEventListener('change', e => {
   const target = e.target.value;
-  if(target !== 'dashboard' && target !== 'report' && !ensureAuthorized()){
+  if(target !== 'dashboard' && target !== 'report' && target !== 'risk' && !ensureAuthorized()){
     e.target.value = 'dashboard';
     switchView('dashboard');
     return;
@@ -2531,6 +2542,7 @@ viewSwitcher.addEventListener('change', e => {
   if(target === 'registra') refreshTrainingList();
   if(target === 'dashboard') refreshHistory();
   if(target === 'report') refreshReport();
+  if(target === 'risk') refreshRiskPage();
 });
 
 /* ---------------- Helpers comuni: select giocatore con "Altro..." ---------------- */
@@ -3152,15 +3164,19 @@ async function refreshReport(){
     </div>`;
   }).join('');
 
-  await renderRiskSection(player, sessions, trainings);
 }
 
-/* ================= MODELLO RISCHIO INFORTUNIO (Parte 5) ================= */
+/* ================= MODELLO STATO DI FORMA / RISCHIO INFORTUNIO =================
+   Modello di monitoraggio: combina carico, densità e tipologia del lavoro,
+   recupero soggettivo e segnali di calo prestativo. Non è una probabilità clinica.
+   Le tipologie ad alta velocità (scatti, ripetute, fartlek con molto lavoro veloce)
+   pesano di più perché aumentano l'esposizione a sprint/accelerazioni/decelerazioni.
+*/
 function dailyLoadMap(sessions){
   const map = {};
   sessions.forEach(s => {
     if(!s.date || s.srpe == null) return;
-    map[s.date] = (map[s.date] || 0) + s.srpe;
+    map[s.date] = (map[s.date] || 0) + Number(s.srpe || 0);
   });
   return map;
 }
@@ -3174,117 +3190,202 @@ function sumLoadInWindow(loadMap, endDateExclusive, days){
 }
 function dailyLoadSeries(loadMap, endDateExclusive, days){
   const arr = [];
-  for(let i=1;i<=days;i++){
-    const d = dateAddDays(endDateExclusive, -i);
-    arr.push(loadMap[d] || 0);
-  }
+  for(let i=1;i<=days;i++) arr.push(loadMap[dateAddDays(endDateExclusive,-i)] || 0);
   return arr;
 }
-async function renderRiskSection(player, sessions, trainings){
-  const riskEl = document.getElementById('riskSection');
-  const allDates = [...sessions.map(s=>s.date), ...trainings.map(t=>t.date)].filter(Boolean).sort();
-  if(!allDates.length){
-    riskEl.innerHTML = '<span style="color:var(--chalk-dim);font-size:12px;">Nessun dato sufficiente per stimare il rischio.</span>';
-    return;
-  }
-  /* Riferimento: oggi, oppure l'ultima data disponibile se più recente (dati storici) */
-  const today = todayStr();
-  const refDate = allDates[allDates.length-1] > today ? dateAddDays(allDates[allDates.length-1], 1) : dateAddDays(today, 1);
-
-  const loadMap = dailyLoadMap(sessions.filter(s => s.rhythmBadge !== 'partita'));
-  const acuteLoad = sumLoadInWindow(loadMap, refDate, 7);
-  const chronicLoad28 = sumLoadInWindow(loadMap, refDate, 28);
-  const chronicWeeklyAvg = chronicLoad28 / 4;
-  const acwr = chronicWeeklyAvg > 0 ? acuteLoad / chronicWeeklyAvg : null;
-
-  const last7 = dailyLoadSeries(loadMap, refDate, 7);
-  const monotony = stdArr(last7) > 0 ? meanArr(last7) / stdArr(last7) : null;
-  const strain = monotony != null ? acuteLoad * monotony : null;
-
-  /* Affaticamento residuo passato e RPE recenti (ultime 3 registrazioni/sessioni, qualunque tipo) */
-  const recentEntries = [...sessions.map(s=>({date:s.date, rpe:s.rpe})), ...trainings.map(t=>({date:t.date, rpe:t.rpe, fatigue:t.fatigue}))]
-    .filter(e => e.date).sort((a,b)=>a.date.localeCompare(b.date)).slice(-3);
-  const recentFatigue = recentEntries.map(e=>e.fatigue).filter(v=>v!=null);
-  const recentRpe = recentEntries.map(e=>e.rpe).filter(v=>v!=null);
-  const avgRecentFatigue = recentFatigue.length ? meanArr(recentFatigue) : null;
-  const avgRecentRpe = recentRpe.length ? meanArr(recentRpe) : null;
-
-  /* Efficienza cardio-motoria: confronto speedHrIndex delle ultime sessioni non-partita rispetto alle precedenti */
-  const nonMatch = sessions.filter(s => s.rhythmBadge !== 'partita' && s.speedHrIndex != null).sort((a,b)=>a.date.localeCompare(b.date));
-  let efficiencyDropPct = null;
-  if(nonMatch.length >= 4){
-    const recent = nonMatch.slice(-2).map(s=>s.speedHrIndex);
-    const baseline = nonMatch.slice(0, -2).slice(-4).map(s=>s.speedHrIndex);
-    if(recent.length && baseline.length){
-      const recentAvg = meanArr(recent), baseAvg = meanArr(baseline);
-      if(baseAvg > 0) efficiencyDropPct = ((baseAvg - recentAvg) / baseAvg) * 100;
+function riskExerciseProfile(s){
+  const ex = s.exercises || {};
+  const rhythm = s.rhythmBadge || '';
+  let score = 0, high = 0, labels=[];
+  const add=(v,label,highV=0)=>{ score += v; high += highV; if(label) labels.push(label); };
+  if(rhythm === 'partita'){ add(24,'Partita / esposizione ad alta intensità',1); }
+  if(rhythm === 'ripetute'){ add(22,'Ripetute ad alta intensità',1); }
+  if(rhythm === 'fartlek'){
+    let fastRatio = 0;
+    if(ex.fartlek && ex.fartlek.totalMin && ex.fartlek.fastSec && ex.fartlek.slowSec){
+      const cycle = ex.fartlek.fastSec + ex.fartlek.slowSec;
+      fastRatio = cycle ? ex.fartlek.fastSec / cycle : 0;
     }
+    const v = fastRatio >= .45 ? 20 : fastRatio >= .30 ? 16 : 12;
+    add(v, `Fartlek (${Math.round(fastRatio*100)}% veloce)`, fastRatio >= .30 ? 1 : 0);
+  }
+  if(rhythm === 'continua') add(5,'Corsa continua',0);
+  if(ex.velocita && ex.velocita.length){
+    const reps = ex.velocita.reduce((a,v)=>a+(Number(v.reps)||0),0);
+    add(Math.min(28, 10 + reps*1.2), `Scatti/velocità (${reps || '?'} ripetizioni)`, 1);
+  }
+  if(ex.ripetute && ex.ripetute.length){
+    const reps = ex.ripetute.reduce((a,v)=>a+(Number(v.reps)||0),0);
+    add(Math.min(28, 10 + reps*0.9), `Ripetute programmate (${reps || '?'} ripetizioni)`, 1);
+  }
+  if(ex.fartlek && ex.fartlek.totalMin){
+    const mins=Number(ex.fartlek.totalMin)||0;
+    if(mins >= 35) add(4,`Fartlek lungo (${mins} min)`,0);
+  }
+  return {score:Math.min(45,score), high:Math.min(2,high), labels};
+}
+function getEntryType(e){
+  if(e.trainingType === 'partita' || e.trainingType === 'allenamento') return e.trainingType;
+  return e.rhythmBadge === 'partita' ? 'partita' : 'allenamento';
+}
+function getTrainingProfile(e){
+  const p = riskExerciseProfile(e);
+  // Manual training entries can carry exercises but may not have rhythmBadge.
+  if(!e.rhythmBadge && e.exercises){
+    const q = riskExerciseProfile({...e, rhythmBadge:'continua'});
+    return q;
+  }
+  return p;
+}
+function clamp100(x){ return Math.max(0, Math.min(100, x)); }
+function riskLevelFromScore(score){
+  if(score >= 70) return ['high','Alto'];
+  if(score >= 45) return ['medium','Moderato'];
+  return ['low','Basso'];
+}
+function formScoreForSessions(sessions){
+  const vals = sessions.filter(s=>s.proScore!=null).sort((a,b)=>a.date.localeCompare(b.date)).slice(-5).map(s=>Number(s.proScore));
+  if(!vals.length) return null;
+  // Più peso alle prestazioni recenti, ma senza ignorare la tendenza.
+  const weights = vals.map((_,i)=>i+1);
+  const totalW = weights.reduce((a,b)=>a+b,0);
+  return vals.reduce((a,v,i)=>a+v*weights[i],0)/totalW;
+}
+function formatPct(v){ return v==null ? '—' : `${v.toFixed(0)}%`; }
+
+async function refreshRiskPage(){
+  const sel=document.getElementById('riskPlayerSelect');
+  const content=document.getElementById('riskPageContent');
+  if(!sel || !content) return;
+  const all=await dbGetAll();
+  const players=[...new Set(all.map(e=>e.player).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const old=sel.value;
+  sel.innerHTML='<option value="">Seleziona...</option>'+players.map(n=>`<option value="${escXml(n)}">${escXml(n)}</option>`).join('');
+  if(old && players.includes(old)) sel.value=old;
+  else if(players.length) sel.value=players[0];
+  await renderRiskPage(sel.value,all);
+}
+
+async function renderRiskPage(player, all){
+  const el=document.getElementById('riskPageContent');
+  if(!el) return;
+  if(!player){ el.innerHTML='<div class="plan-hint">Seleziona un giocatore.</div>'; return; }
+  const sessions=all.filter(isSessionEntry).filter(e=>e.player===player);
+  const trainings=all.filter(isTrainingEntry).filter(e=>e.player===player);
+  const entries=[...sessions,...trainings].filter(e=>e.date).sort((a,b)=>a.date.localeCompare(b.date));
+  if(!entries.length){ el.innerHTML='<div class="plan-hint">Nessun dato disponibile per questo giocatore.</div>'; return; }
+
+  const today=todayStr();
+  const lastDate=entries[entries.length-1].date;
+  const refDate = lastDate > today ? dateAddDays(lastDate,1) : dateAddDays(today,1);
+  const loadMap=dailyLoadMap(sessions);
+  const acute7=sumLoadInWindow(loadMap,refDate,7);
+  const chronic28=sumLoadInWindow(loadMap,refDate,28);
+  const chronicWeekly=chronic28/4;
+  const acwr=chronicWeekly>0 ? acute7/chronicWeekly : null;
+  const last7=dailyLoadSeries(loadMap,refDate,7);
+  const mean7=meanArr(last7), sd7=stdArr(last7);
+  const monotony=sd7>0 ? mean7/sd7 : null;
+  const strain=monotony!=null ? acute7*monotony : null;
+
+  // Tipologie e densità del lavoro intenso.
+  const profiles=entries.map(e=>({e,p:getTrainingProfile(e)}));
+  const hiDates=[];
+  profiles.forEach(({e,p})=>{
+    const isHigh=p.high>0 || p.score>=16 || getEntryType(e)==='partita';
+    if(isHigh) hiDates.push(e.date);
+  });
+  const uniqHi=[...new Set(hiDates)].sort();
+  const hi7=uniqHi.filter(d=>d>=dateAddDays(refDate,-7)&&d<refDate).length;
+  const hi14=uniqHi.filter(d=>d>=dateAddDays(refDate,-14)&&d<refDate).length;
+  let consecutive=0;
+  for(let i=1;i<=7;i++){
+    const d=dateAddDays(refDate,-i);
+    if(uniqHi.includes(d)) consecutive++; else break;
+  }
+  const typeCounts={fartlek:0,ripetute:0,velocita:0,partita:0,continua:0,other:0};
+  entries.filter(e=>e.date>=dateAddDays(refDate,-28)&&e.date<refDate).forEach(e=>{
+    const r=e.rhythmBadge;
+    if(r==='fartlek') typeCounts.fartlek++;
+    else if(r==='ripetute') typeCounts.ripetute++;
+    else if((e.exercises&&e.exercises.velocita&&e.exercises.velocita.length)||r==='velocita') typeCounts.velocita++;
+    else if(getEntryType(e)==='partita') typeCounts.partita++;
+    else if(r==='continua') typeCounts.continua++;
+    else typeCounts.other++;
+  });
+  const highTypeCount=typeCounts.fartlek+typeCounts.ripetute+typeCounts.velocita+typeCounts.partita;
+  const highTypeShare=entries.filter(e=>e.date>=dateAddDays(refDate,-28)&&e.date<refDate).length ? highTypeCount/entries.filter(e=>e.date>=dateAddDays(refDate,-28)&&e.date<refDate).length : 0;
+  const recentHigh=uniqHi.filter(d=>d>=dateAddDays(refDate,-7)&&d<refDate).length;
+  const previousHigh=uniqHi.filter(d=>d>=dateAddDays(refDate,-21)&&d<dateAddDays(refDate,-7)).length/2;
+  const highSpike=previousHigh>0 ? recentHigh/previousHigh : (recentHigh>0 ? 2 : 1);
+
+  const recent=entries.slice(-5);
+  const fat=recent.map(e=>e.fatigue).filter(v=>v!=null).map(Number);
+  const rpes=recent.map(e=>e.rpe).filter(v=>v!=null).map(Number);
+  const avgFat=fat.length?meanArr(fat):null;
+  const avgRpe=rpes.length?meanArr(rpes):null;
+
+  const nonMatch=sessions.filter(s=>getEntryType(s)!=='partita' && s.speedHrIndex!=null).sort((a,b)=>a.date.localeCompare(b.date));
+  let efficiencyDrop=null;
+  if(nonMatch.length>=4){
+    const recent2=nonMatch.slice(-2).map(s=>Number(s.speedHrIndex));
+    const base=nonMatch.slice(0,-2).slice(-4).map(s=>Number(s.speedHrIndex));
+    const ra=meanArr(recent2), ba=meanArr(base);
+    if(ba>0) efficiencyDrop=((ba-ra)/ba)*100;
   }
 
-  /* Prossima esercitazione pianificata dal mister (per consiglio mirato: saltarla o rallentarla) */
-  let nextPlan = null, nextPlanDate = null;
-  for(let i=0;i<10 && !nextPlan;i++){
-    const d = dateAddDays(refDate, i);
-    const p = await getPlanForDate(d);
-    if(p && (p.fartlek || p.ripetute || p.velocita)){ nextPlan = p; nextPlanDate = d; }
+  // Componenti del punteggio. Pesi deliberatamente distribuiti: il tipo di lavoro
+  // conta, ma non domina il modello da solo.
+  let score=0; const reasons=[];
+  const add=(pts,msg)=>{ score+=pts; reasons.push(msg); };
+  if(acwr!=null){
+    if(acwr>=1.5) add(18,`Picco di carico: ACWR ${acwr.toFixed(2)}.`);
+    else if(acwr>=1.3) add(10,`Incremento del carico: ACWR ${acwr.toFixed(2)}.`);
+    else if(acwr<0.7) add(3,`Carico recente molto basso (ACWR ${acwr.toFixed(2)}): la ripresa dell'intensità va comunque fatta gradualmente.`);
   }
+  if(monotony!=null && monotony>=2) add(Math.min(8,(monotony-1.5)*6),`Monotonia elevata (${monotony.toFixed(1)}): pochi giorni realmente scarichi.`);
+  if(hi7>=4) add(12,`${hi7} giorni ad alta intensità negli ultimi 7 giorni.`);
+  else if(hi7===3) add(7,`3 giorni ad alta intensità negli ultimi 7 giorni.`);
+  if(consecutive>=2) add(Math.min(8,consecutive*3),`${consecutive} giorni consecutivi con lavoro ad alta intensità.`);
+  if(highSpike>=1.75) add(10,`Aumento della frequenza dei lavori intensi rispetto alle 2 settimane precedenti.`);
+  else if(highSpike>=1.4) add(5,`Frequenza dei lavori intensi in aumento rispetto alle settimane precedenti.`);
+  if(highTypeShare>=0.60) add(8,`${Math.round(highTypeShare*100)}% delle sedute recenti è composto da partita/fartlek/ripetute/velocità.`);
+  else if(highTypeShare>=0.45) add(4,`Alta quota di sedute ad alta intensità (${Math.round(highTypeShare*100)}%).`);
+  if(typeCounts.velocita>=3) add(7,`Molte sedute con scatti/velocità nelle ultime 4 settimane (${typeCounts.velocita}).`);
+  if(typeCounts.ripetute>=3) add(7,`Molte sedute di ripetute nelle ultime 4 settimane (${typeCounts.ripetute}).`);
+  if(typeCounts.fartlek>=4) add(6,`Fartlek frequente nelle ultime 4 settimane (${typeCounts.fartlek}).`);
+  if(avgFat!=null && avgFat>=7) add(12,`Affaticamento residuo medio alto: ${avgFat.toFixed(1)}/10.`);
+  else if(avgFat!=null && avgFat>=5) add(6,`Affaticamento residuo medio sopra la soglia prudenziale: ${avgFat.toFixed(1)}/10.`);
+  if(avgRpe!=null && avgRpe>=8) add(7,`RPE medio recente elevato: ${avgRpe.toFixed(1)}/10.`);
+  if(efficiencyDrop!=null && efficiencyDrop>=12) add(8,`Indice velocità/FC in calo di ${efficiencyDrop.toFixed(0)}% rispetto al baseline recente.`);
 
-  /* --- Calcolo livello di rischio e motivazioni --- */
-  const reasons = [];
-  let riskPoints = 0;
-  if(acwr != null){
-    if(acwr >= 1.5){ riskPoints += 2; reasons.push(`Rapporto carico acuto/cronico (ACWR) elevato: ${acwr.toFixed(2)} — il carico delle ultime 7 giornate è cresciuto molto rispetto alla media delle 4 settimane precedenti (zona di rischio &gt; 1.5).`); }
-    else if(acwr <= 0.8){ riskPoints += 1; reasons.push(`ACWR basso: ${acwr.toFixed(2)} — carico ridotto rispetto al recente: attenzione a non reintrodurre intensità troppo bruscamente al rientro.`); }
-  }
-  if(monotony != null && monotony >= 2){ riskPoints += 1; reasons.push(`Monotonia del carico elevata (${monotony.toFixed(1)}): allenamenti troppo simili tra loro senza variazione di intensità.`); }
-  if(avgRecentFatigue != null && avgRecentFatigue >= 7){ riskPoints += 2; reasons.push(`Affaticamento residuo passato medio molto alto nelle ultime registrazioni: ${avgRecentFatigue.toFixed(1)}/10.`); }
-  else if(avgRecentFatigue != null && avgRecentFatigue >= 5){ riskPoints += 1; reasons.push(`Affaticamento residuo passato medio nella norma-alta: ${avgRecentFatigue.toFixed(1)}/10.`); }
-  if(avgRecentRpe != null && avgRecentRpe >= 8){ riskPoints += 1; reasons.push(`RPE medio recente elevato: ${avgRecentRpe.toFixed(1)}/10.`); }
-  if(efficiencyDropPct != null && efficiencyDropPct >= 12){ riskPoints += 1; reasons.push(`Efficienza velocità/FC in calo del ${efficiencyDropPct.toFixed(0)}% rispetto alle sessioni precedenti: possibile affaticamento cardiovascolare residuo.`); }
+  const riskScore=Math.round(clamp100(score));
+  const [riskClass,riskLabel]=riskLevelFromScore(riskScore);
+  const form=formScoreForSessions(sessions);
+  const formLabel=form==null?'Dati insufficienti':form>=80?'Alta':form>=65?'Buona':form>=50?'Da monitorare':'Bassa';
 
-  let riskLevel = 'low', riskLabel = 'Basso';
-  if(riskPoints >= 4){ riskLevel = 'high'; riskLabel = 'Alto'; }
-  else if(riskPoints >= 2){ riskLevel = 'medium'; riskLabel = 'Moderato'; }
+  const tags=[];
+  if(typeCounts.fartlek) tags.push(`Fartlek ${typeCounts.fartlek}`);
+  if(typeCounts.ripetute) tags.push(`Ripetute ${typeCounts.ripetute}`);
+  if(typeCounts.velocita) tags.push(`Velocità ${typeCounts.velocita}`);
+  if(typeCounts.partita) tags.push(`Partite ${typeCounts.partita}`);
+  if(typeCounts.continua) tags.push(`Corsa continua ${typeCounts.continua}`);
 
-  /* --- Consiglio pratico per il prossimo allenamento --- */
-  let advice;
-  if(riskLevel === 'high'){
-    if(nextPlan){
-      const tipi = [nextPlan.ripetute?'ripetute lunghe':null, nextPlan.velocita?'scatti di velocità':null].filter(Boolean);
-      if(tipi.length) advice = `Consiglio: nella prossima seduta (${nextPlanDate}) saltare o sostituire ${tipi.join(' e ')} con lavoro aerobico leggero (fartlek lento o corsa blanda), oppure ridurre sensibilmente ripetizioni/intensità. Valutare un giorno di riposo completo prima di riprendere il lavoro ad alta intensità.`;
-      else if(nextPlan.fartlek) advice = `Consiglio: nella prossima seduta (${nextPlanDate}) di Fartlek, allungare le fasi lente e ridurre la durata/intensità dei tratti veloci, oppure sostituirla con corsa blanda o riposo.`;
-      else advice = `Consiglio: privilegiare riposo o lavoro molto leggero nei prossimi giorni prima di riprendere l'intensità.`;
-    } else {
-      advice = `Consiglio: privilegiare riposo o un allenamento molto leggero (corsa blanda, nessuna ripetuta/scatto) nei prossimi giorni, monitorando l'affaticamento residuo passato prima di reintrodurre lavoro intenso.`;
-    }
-  } else if(riskLevel === 'medium'){
-    advice = nextPlan
-      ? `Consiglio: nella prossima seduta (${nextPlanDate}) mantenere il piano ma con un occhio di riguardo — se l'affaticamento residuo passato dichiarato resta alto, ridurre leggermente ripetizioni/intensità rispetto al programma.`
-      : `Consiglio: nessun rischio urgente, ma monitorare l'andamento di RPE e affaticamento residuo passato nelle prossime sedute.`;
-  } else {
-    advice = `Nessun segnale di rischio significativo al momento: il carico risulta gestito. Si può proseguire con il piano di allenamento previsto.`;
-  }
+  let advice='';
+  if(riskClass==='high') advice='Ridurre la densità dei lavori ad alta intensità: evitare di concatenare velocità/ripetute/fartlek intenso, inserire recupero e mantenere una progressione graduale del carico.';
+  else if(riskClass==='medium') advice='Il carico richiede attenzione: alternare sedute intense e sedute più leggere e usare RPE/affaticamento per decidere se mantenere o ridurre l’intensità prevista.';
+  else advice='Il carico appare attualmente gestibile. Mantenere comunque la periodizzazione, senza trasformare ogni seduta in lavoro ad alta intensità.';
 
-  const reasonsHtml = reasons.length
-    ? `<ul>${reasons.map(r=>`<li>${r}</li>`).join('')}</ul>`
-    : `<div style="font-size:12.5px;color:var(--chalk-dim);margin-top:6px;">Nessun indicatore di rischio rilevante nei dati disponibili.</div>`;
-
-  riskEl.innerHTML = `<div class="risk-card">
-    <div class="risk-head">
-      <span class="risk-name">${escXml(player)}</span>
-      <span class="risk-badge ${riskLevel}">Rischio ${riskLabel}</span>
-      ${acwr!=null?`<span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--chalk-dim);">ACWR ${acwr.toFixed(2)}</span>`:''}
-    </div>
-    ${reasonsHtml}
-    <div class="risk-advice ${riskLevel==='low'?'ok':''}">${advice}</div>
-  </div>`;
+  el.innerHTML=`<div class="risk-card">\n    <div class="risk-head"><span class="risk-name">${escXml(player)}</span><span class="risk-badge ${riskClass}">Indice ${riskScore}/100 · ${riskLabel}</span></div>\n    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:12px;">\n      <div class="stat-card"><div class="stat-label">STATO DI FORMA</div><div class="stat-value">${form==null?'—':form.toFixed(0)}</div><div class="stat-sub">${formLabel}${form!=null?' · ultime 5 prestazioni':''}</div></div>\n      <div class="stat-card"><div class="stat-label">CARICO 7 GIORNI</div><div class="stat-value">${Math.round(acute7)}</div><div class="stat-sub">sRPE</div></div>\n      <div class="stat-card"><div class="stat-label">ACWR</div><div class="stat-value">${acwr==null?'—':acwr.toFixed(2)}</div><div class="stat-sub">7 gg vs media 4 settimane</div></div>\n      <div class="stat-card"><div class="stat-label">ALTA INTENSITÀ</div><div class="stat-value">${hi7}</div><div class="stat-sub">giorni negli ultimi 7</div></div>\n    </div>\n    <div style="margin-top:16px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:rgba(0,0,0,.12);font-size:12px;line-height:1.65;color:var(--chalk-dim);">\n      <b style="color:var(--chalk);">Perché la tipologia conta:</b> velocità/scatti e ripetute hanno un peso maggiore; il Fartlek pesa in funzione della quota veloce; partite e giorni consecutivi intensi aumentano la densità. L'obiettivo non è evitare l'intensità, ma <b style="color:var(--chalk);">periodizzarla</b> e distribuire il recupero.\n    </div>\n    <div class="risk-advice ${riskClass==='low'?'ok':''}" style="margin-top:12px;">${advice}</div>\n  </div>\n  <div class="risk-card">\n    <div class="risk-head"><span class="risk-name">Fattori che stanno incidendo</span></div>\n    ${reasons.length?`<ul>${reasons.slice(-10).map(r=>`<li>${r}</li>`).join('')}</ul>`:'<div style="font-size:12.5px;color:var(--chalk-dim);">Nessun segnale importante rilevato nei dati disponibili.</div>'}\n  </div>\n  <div class="risk-card">\n    <div class="risk-head"><span class="risk-name">Tipologie ultime 4 settimane</span></div>\n    <div style="display:flex;gap:8px;flex-wrap:wrap;">${tags.length?tags.map(t=>`<span class="te-type">${t}</span>`).join(''):'<span style="color:var(--chalk-dim);font-size:12px;">Nessun dettaglio di tipologia disponibile.</span>'}</div>\n    <div style="margin-top:12px;font-size:12px;color:var(--chalk-dim);line-height:1.7;">Monotonia ${monotony==null?'—':monotony.toFixed(2)} · Strain ${strain==null?'—':Math.round(strain)} · ${consecutive} giorni intensi consecutivi · RPE medio ${avgRpe==null?'—':avgRpe.toFixed(1)} · Fatigue medio ${avgFat==null?'—':avgFat.toFixed(1)}</div>\n  </div>\n  <div class="plan-hint" style="margin-top:12px;"><b>Nota metodologica:</b> il punteggio è una stratificazione interna dell'app, non una probabilità di infortunio. La letteratura mostra che carico esterno/interno, storia di infortuni, recupero/benessere e caratteristiche neuromuscolari possono essere utili, ma i modelli disponibili sono ancora eterogenei e non sufficientemente validati per trasformare questi dati in una probabilità individuale affidabile. L'ACWR va quindi usato come indicatore di trend e non come soglia diagnostica.</div>`;
 }
 document.getElementById('reportPlayerSelect').addEventListener('change', refreshReport);
 document.getElementById('reportWindowSelect').addEventListener('change', refreshReport);
+document.getElementById('riskPlayerSelect').addEventListener('change', async e => { const all=await dbGetAll(); await renderRiskPage(e.target.value, all); });
 
 renderAll();
 refreshHistory();
 loadFromCloud();
+refreshRiskPage();
 </script>
 </body>
 </html>
