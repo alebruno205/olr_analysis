@@ -2131,6 +2131,8 @@ async function openDetailModal(entry){
     const updated = {
       ...entry,
       player: newPlayer, date: newDate,
+      /* Il tipo scelto manualmente deve avere priorità sul riconoscimento automatico del FIT. */
+      trainingType: editTrainingType,
       rpe: editRpeValue,
       duration: newDurationSec,
       distance: isFinite(newDistance) ? newDistance : entry.distance,
@@ -3044,11 +3046,35 @@ async function refreshReport(){
   const sessions = all.filter(isSessionEntry).filter(e => e.player === player);
   const trainings = all.filter(isTrainingEntry).filter(e => e.player === player);
 
-  /* Le "partite" sono identificate da: sessione .fit con ritmo auto-riconosciuto come
-     partita/gioco libero, oppure scheda registrata dal giocatore con tipo "Partita". */
+  /*
+     Il tipo della giornata inserito/modificato dall'utente è prioritario rispetto
+     al riconoscimento automatico del ritmo del FIT. Questo è importante perché
+     un FIT può essere stato riconosciuto automaticamente come "partita", ma
+     l'utente può correggerlo in "allenamento".
+     Per le vecchie sessioni che non hanno trainingType, usiamo l'eventuale scheda
+     training collegata (stesso giocatore + stessa data) come override.
+  */
+  const trainingByKey = {};
+  trainings.forEach(t => {
+    const k = linkKey(t.player, t.date);
+    if(!trainingByKey[k] || (t.savedAt||0) > (trainingByKey[k].savedAt||0)) trainingByKey[k] = t;
+  });
+  function effectiveSessionType(s){
+    if(s.trainingType === 'allenamento' || s.trainingType === 'partita') return s.trainingType;
+    const linked = trainingByKey[linkKey(s.player, s.date)];
+    if(linked && (linked.type === 'allenamento' || linked.type === 'partita')) return linked.type;
+    return s.rhythmBadge === 'partita' ? 'partita' : 'allenamento';
+  }
+
+  /* Una partita può provenire da una sessione FIT oppure da una registrazione manuale.
+     Se esiste una sessione FIT nella stessa giornata, la relativa scheda training
+     viene considerata metadato collegato e non una seconda attività. */
   const matchDates = new Set();
-  sessions.forEach(s => { if(s.rhythmBadge === 'partita' && s.date) matchDates.add(s.date); });
-  trainings.forEach(t => { if(t.type === 'partita' && t.date) matchDates.add(t.date); });
+  sessions.forEach(s => { if(effectiveSessionType(s) === 'partita' && s.date) matchDates.add(s.date); });
+  trainings.forEach(t => {
+    const hasSessionSameDay = sessions.some(s => s.date === t.date);
+    if(!hasSessionSameDay && t.type === 'partita' && t.date) matchDates.add(t.date);
+  });
 
   if(!matchDates.size){
     summaryEl.style.display = 'none';
@@ -3058,13 +3084,17 @@ async function refreshReport(){
 
   const sortedMatchDates = [...matchDates].sort();
   const matchReports = sortedMatchDates.map(date => {
-    const fitMatch = sessions.find(s => s.date === date && s.rhythmBadge === 'partita')
-                   || sessions.find(s => s.date === date);
-    const manualMatch = trainings.find(t => t.date === date && t.type === 'partita');
+    const fitMatch = sessions.find(s => s.date === date && effectiveSessionType(s) === 'partita');
+    const manualMatch = sessions.some(s => s.date === date)
+      ? null
+      : trainings.find(t => t.date === date && t.type === 'partita');
     const winStart = dateAddDays(date, -windowDays);
     const winEnd = dateAddDays(date, -1);
-    const preSessions = sessions.filter(s => s.date >= winStart && s.date <= winEnd && s.rhythmBadge !== 'partita');
-    const preTrainings = trainings.filter(t => t.date >= winStart && t.date <= winEnd && t.type === 'allenamento');
+    const preSessions = sessions.filter(s => s.date >= winStart && s.date <= winEnd && effectiveSessionType(s) === 'allenamento');
+    const preTrainings = trainings.filter(t => {
+      const hasSessionSameDay = sessions.some(s => s.date === t.date);
+      return !hasSessionSameDay && t.date >= winStart && t.date <= winEnd && t.type === 'allenamento';
+    });
 
     const rpeValues = [...preSessions.map(s=>s.rpe), ...preTrainings.map(t=>t.rpe)].filter(v => v!=null);
     const fatigueValues = preTrainings.map(t=>t.fatigue).filter(v => v!=null);
