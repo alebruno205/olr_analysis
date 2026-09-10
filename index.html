@@ -1980,15 +1980,6 @@ async function openDetailModal(entry){
       <div class="block-row">
         <div class="meta-field"><label>Giocatore</label><input type="text" id="editEntryPlayer" value="${escXml(entry.player||'')}"></div>
         <div class="meta-field"><label>Data</label><input type="date" id="editEntryDate" value="${entry.date||''}"></div>
-        <div class="meta-field"><label>Tipo sessione (analisi ritmo)</label>
-          <select id="editEntryType">
-            <option value="partita" ${entry.rhythmBadge==='partita'?'selected':''}>Partita / gioco libero</option>
-            <option value="fartlek" ${entry.rhythmBadge==='fartlek'?'selected':''}>Fartlek</option>
-            <option value="ripetute" ${entry.rhythmBadge==='ripetute'?'selected':''}>Ripetute</option>
-            <option value="continua" ${entry.rhythmBadge==='continua'?'selected':''}>Corsa continua</option>
-            <option value="insufficienti" ${(!entry.rhythmBadge||entry.rhythmBadge==='insufficienti')?'selected':''}>Non classificato</option>
-          </select>
-        </div>
       </div>
       <div class="block-row" style="margin-top:10px;">
         <div class="meta-field"><label>Durata (min)</label><input type="number" min="0" step="0.1" id="editEntryDuration" value="${entry.duration!=null?(entry.duration/60).toFixed(1):''}"></div>
@@ -2092,7 +2083,6 @@ async function openDetailModal(entry){
     const newAvgHR = parseFloat(document.getElementById('editEntryAvgHR').value);
     const newMaxHR = parseFloat(document.getElementById('editEntryMaxHR').value);
     const newMaxSpeed = parseFloat(document.getElementById('editEntryMaxSpeed').value);
-    const newBadge = document.getElementById('editEntryType').value;
     const updated = {
       ...entry,
       player: newPlayer, date: newDate,
@@ -2103,7 +2093,6 @@ async function openDetailModal(entry){
       avgHR: isFinite(newAvgHR) ? newAvgHR : entry.avgHR,
       maxHR: isFinite(newMaxHR) ? newMaxHR : entry.maxHR,
       maxSpeed: isFinite(newMaxSpeed) ? newMaxSpeed : entry.maxSpeed,
-      rhythmBadge: newBadge,
     };
     updated.srpe = (editRpeValue!=null && updated.duration) ? editRpeValue * (updated.duration/60) : entry.srpe;
     if(updated.avgHR && updated.maxHRSetting) updated.speedHrIndex = updated.avgSpeed / (updated.avgHR/updated.maxHRSetting);
