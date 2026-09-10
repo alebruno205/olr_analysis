@@ -352,7 +352,6 @@
     <label class="app-nav-label" for="viewSwitcher">Vai a</label>
     <select id="viewSwitcher">
       <option value="dashboard">📊 Dashboard squadra</option>
-      <option value="registra">📝 Registra allenamento/partita</option>
       <option value="mister">🧢 Piano mister</option>
       <option value="report">📈 Report partita/allenamenti</option>
     </select>
@@ -371,6 +370,7 @@
     <p>oppure clicca per selezionarli — puoi caricarne più di uno insieme</p>
     <input type="file" id="fileInput" multiple>
   </div>
+  <p class="view-intro" style="margin-top:-6px;">Da qui puoi registrare tutto in un unico passaggio: dati oggettivi dal file .fit, tipo giornata (allenamento/partita), esercitazioni svolte (pre-selezionate dal piano del mister), RPE e affaticamento residuo passato.</p>
   <div class="file-count-row" id="fileCountRow" style="display:none;">
     <span id="fileCountLabel">0 file caricati</span>
     <button id="clearBtn">Svuota tutto</button>
@@ -532,7 +532,7 @@
 
   <div id="viewRegistra" class="app-view">
     <div class="section-title" style="margin-top:12px;"><span class="num">R</span><h2>Registra allenamento/partita</h2></div>
-    <p class="view-intro">Registra cosa hai fatto in una determinata giornata: una partita o un allenamento (con i dettagli degli esercizi svolti).</p>
+    <p class="view-intro">Registra cosa hai fatto in una determinata giornata: una partita o un allenamento (con i dettagli degli esercizi svolti). Usa questa pagina quando non hai un file .fit da caricare (es. nessun dispositivo indossato): se invece carichi un .fit dalla Dashboard, puoi già inserire questi stessi dati direttamente lì, in un unico passaggio.</p>
 
     <div class="team-summary" style="margin-bottom:26px;">
       <div class="team-toolbar" style="margin-bottom:0;">
@@ -871,6 +871,13 @@ function parseFIT(arrayBuffer, fileName){
     vamCustomized: false,
   };
   computeHRMetrics(p);
+  p.trainingType = (p.rhythm.badge === 'partita') ? 'partita' : 'allenamento';
+  p.fatigue = null;
+  p.notes = '';
+  p.exercises = { hasFartlek:false, hasRipetute:false, hasVelocita:false,
+    fartlek:{totalMin:null,fastSec:null,slowSec:null}, ripetute:[], velocita:[] };
+  p.hasPlan = false;
+  p.planNote = '';
   return p;
 }
 
@@ -1334,6 +1341,7 @@ function renderPlayers(){
     const playerOptions = PLAYER_PRESETS.map(n => `<option value="${n}" ${p.playerName===n?'selected':''}>${n}</option>`).join('')
       + `<option value="__altro__" ${isCustom?'selected':''}>Altro...</option>`;
     const rpePills = Array.from({length:10}, (_,i)=>i+1).map(n => `<button type="button" class="rpe-pill ${p.rpe===n?'active':''}" data-rpe="${n}" data-id="${p.id}">${n}</button>`).join('');
+    const fatiguePills = Array.from({length:10}, (_,i)=>i+1).map(n => `<button type="button" class="rpe-pill ${p.fatigue===n?'active':''}" data-fatigue="${n}" data-id="${p.id}">${n}</button>`).join('');
     return `
     <div class="player-card" data-id="${p.id}">
       <div class="player-head">
@@ -1360,13 +1368,57 @@ function renderPlayers(){
             <input type="number" step="0.5" class="vam-input" data-id="${p.id}" min="12" max="26" value="${p.vamSetting}">
           </div>
           <div class="meta-field">
+            <label>Tipo giornata</label>
+            <div class="tt-pills type-pills" data-id="${p.id}">
+              <button type="button" class="tt-pill ${p.trainingType==='allenamento'?'active':''}" data-typebtn="allenamento" data-id="${p.id}">Allenamento</button>
+              <button type="button" class="tt-pill ${p.trainingType==='partita'?'active':''}" data-typebtn="partita" data-id="${p.id}">Partita</button>
+            </div>
+          </div>
+          <div class="meta-field">
             <label>RPE sessione (1–10)</label>
             <div class="rpe-row"><div class="rpe-pills">${rpePills}</div></div>
+          </div>
+          <div class="meta-field">
+            <label>Affaticamento residuo passato (1=fresco, 10=molto affaticato)</label>
+            <div class="rpe-row"><div class="rpe-pills">${fatiguePills}</div></div>
           </div>
         </div>
         <button class="remove-btn" data-remove="${p.id}" title="Rimuovi">✕</button>
       </div>
       <div class="player-sub">${p.fileName} · ${p.sport} · ${p.sampleCount} campioni</div>
+      ${p.trainingType==='allenamento' ? `
+      <div class="zone-block">
+        <h4>Cosa ha fatto</h4>
+        ${p.hasPlan ? `<div class="plan-hint">Il mister ha previsto per il ${p.date}: ${[p.exercises.hasFartlek?'Fartlek':null,p.exercises.hasRipetute?'Ripetute lunghe':null,p.exercises.hasVelocita?'Velocità (scatti)':null].filter(Boolean).join(', ')} — risultano già segnate come svolte con i valori pianificati (correggi o togli la spunta se non le ha fatte).${p.planNote?(' Nota: '+p.planNote):''}</div>` : `<div class="plan-hint">Il mister non ha impostato un piano per questa data: nessuna esercitazione pre-selezionata. Puoi comunque indicarle a mano.</div>`}
+        <div class="team-toolbar-row" style="margin:12px 0;">
+          <label class="check-row"><input type="checkbox" class="ex-check" data-ex="hasFartlek" data-id="${p.id}" ${p.exercises.hasFartlek?'checked':''}> Fartlek</label>
+          <label class="check-row"><input type="checkbox" class="ex-check" data-ex="hasRipetute" data-id="${p.id}" ${p.exercises.hasRipetute?'checked':''}> Ripetute lunghe</label>
+          <label class="check-row"><input type="checkbox" class="ex-check" data-ex="hasVelocita" data-id="${p.id}" ${p.exercises.hasVelocita?'checked':''}> Velocità (scatti)</label>
+        </div>
+        <div class="exercise-block" data-exform="fartlek" data-id="${p.id}" style="display:${p.exercises.hasFartlek?'block':'none'};">
+          <h4>Fartlek</h4>
+          <div class="block-row">
+            <div class="meta-field"><label>Durata totale (min)</label><input type="number" min="1" class="fartlek-field" data-ffield="totalMin" data-id="${p.id}" value="${p.exercises.fartlek.totalMin??''}"></div>
+            <div class="meta-field"><label>Durata set veloce (sec)</label><input type="number" min="1" class="fartlek-field" data-ffield="fastSec" data-id="${p.id}" value="${p.exercises.fartlek.fastSec??''}"></div>
+            <div class="meta-field"><label>Durata set lento (sec)</label><input type="number" min="1" class="fartlek-field" data-ffield="slowSec" data-id="${p.id}" value="${p.exercises.fartlek.slowSec??''}"></div>
+          </div>
+          <div class="calc-hint" id="fartlekRepsHint-${p.id}">Ripetizioni stimate: ${calcFartlekReps(p.exercises.fartlek.totalMin,p.exercises.fartlek.fastSec,p.exercises.fartlek.slowSec) ?? '—'}</div>
+        </div>
+        <div class="exercise-block" data-exform="ripetute" data-id="${p.id}" style="display:${p.exercises.hasRipetute?'block':'none'};">
+          <h4>Ripetute lunghe</h4>
+          <div id="ripBlocks-${p.id}"></div>
+          <button type="button" class="btn-ghost add-block-btn" data-addblock="ripetute" data-id="${p.id}">+ Aggiungi serie</button>
+        </div>
+        <div class="exercise-block" data-exform="velocita" data-id="${p.id}" style="display:${p.exercises.hasVelocita?'block':'none'};">
+          <h4>Velocità (scatti)</h4>
+          <div id="velBlocks-${p.id}"></div>
+          <button type="button" class="btn-ghost add-block-btn" data-addblock="velocita" data-id="${p.id}">+ Aggiungi serie</button>
+        </div>
+        <div class="meta-field" style="margin-top:12px;">
+          <label>Note (facoltative)</label>
+          <input type="text" class="notes-input" data-id="${p.id}" value="${(p.notes||'').replace(/"/g,'&quot;')}">
+        </div>
+      </div>` : ''}
       <div class="pro-score-badge ${proScoreClass(p.proScore)}">
         <div class="ps-value">${p.proScore ?? '—'}<span>/100</span></div>
         <div class="ps-label">Livello di intensità</div>
@@ -1417,8 +1469,11 @@ function renderPlayers(){
     const p = players.find(p=>p.id===e.target.dataset.id); if(p) p.playerCustom = e.target.value;
     renderTeam();
   }));
-  list.querySelectorAll('.date-input').forEach(inp => inp.addEventListener('change', e => {
-    const p = players.find(p=>p.id===e.target.dataset.id); if(p) p.date = e.target.value;
+  list.querySelectorAll('.date-input').forEach(inp => inp.addEventListener('change', async e => {
+    const p = players.find(p=>p.id===e.target.dataset.id); if(!p) return;
+    p.date = e.target.value;
+    if(p.trainingType === 'allenamento') await applyPlanToPlayer(p);
+    renderPlayers(); renderTeam();
   }));
   list.querySelectorAll('.maxhr-input').forEach(inp => inp.addEventListener('change', e => {
     const p = players.find(p=>p.id===e.target.dataset.id); if(!p) return;
@@ -1440,6 +1495,53 @@ function renderPlayers(){
     players = players.filter(p=>p.id!==e.target.dataset.remove);
     renderAll();
   }));
+
+  /* --- Tipo giornata (Allenamento/Partita) --- */
+  list.querySelectorAll('[data-typebtn]').forEach(btn => btn.addEventListener('click', e => {
+    const p = players.find(p=>p.id===e.target.dataset.id); if(!p) return;
+    p.trainingType = e.target.dataset.typebtn;
+    renderPlayers(); renderTeam();
+  }));
+  /* --- Affaticamento residuo passato --- */
+  list.querySelectorAll('[data-fatigue]').forEach(btn => btn.addEventListener('click', e => {
+    const p = players.find(p=>p.id===e.target.dataset.id); if(!p) return;
+    p.fatigue = parseInt(e.target.dataset.fatigue,10);
+    renderPlayers(); renderTeam();
+  }));
+  /* --- Checkbox esercitazioni svolte --- */
+  list.querySelectorAll('.ex-check').forEach(chk => chk.addEventListener('change', e => {
+    const p = players.find(p=>p.id===e.target.dataset.id); if(!p) return;
+    p.exercises[e.target.dataset.ex] = e.target.checked;
+    const map = {hasFartlek:'fartlek', hasRipetute:'ripetute', hasVelocita:'velocita'};
+    const formEl = list.querySelector(`[data-exform="${map[e.target.dataset.ex]}"][data-id="${p.id}"]`);
+    if(formEl) formEl.style.display = e.target.checked ? 'block' : 'none';
+  }));
+  /* --- Campi Fartlek --- */
+  list.querySelectorAll('.fartlek-field').forEach(inp => inp.addEventListener('change', e => {
+    const p = players.find(p=>p.id===e.target.dataset.id); if(!p) return;
+    const v = parseFloat(e.target.value);
+    p.exercises.fartlek[e.target.dataset.ffield] = isFinite(v) ? v : null;
+    const hint = document.getElementById('fartlekRepsHint-'+p.id);
+    if(hint) hint.textContent = 'Ripetizioni stimate: ' + (calcFartlekReps(p.exercises.fartlek.totalMin, p.exercises.fartlek.fastSec, p.exercises.fartlek.slowSec) ?? '—');
+  }));
+  /* --- Blocchi Ripetute/Velocità: aggiunta riga e sincronizzazione dati --- */
+  list.querySelectorAll('[data-addblock]').forEach(btn => btn.addEventListener('click', e => {
+    const id = e.target.dataset.id, kind = e.target.dataset.addblock;
+    const cfg = kind==='ripetute' ? RIPETUTE_FIELDS : VELOCITA_FIELDS;
+    addSubBlock((kind==='ripetute'?'ripBlocks-':'velBlocks-')+id, cfg);
+  }));
+  list.querySelectorAll('.notes-input').forEach(inp => inp.addEventListener('change', e => {
+    const p = players.find(p=>p.id===e.target.dataset.id); if(p) p.notes = e.target.value;
+  }));
+  players.forEach(p => {
+    if(p.trainingType !== 'allenamento') return;
+    if(p.exercises.hasRipetute) fillBlocksFromData('ripBlocks-'+p.id, p.exercises.ripetute, RIPETUTE_FIELDS);
+    if(p.exercises.hasVelocita) fillBlocksFromData('velBlocks-'+p.id, p.exercises.velocita, VELOCITA_FIELDS);
+    const ripCont = document.getElementById('ripBlocks-'+p.id);
+    if(ripCont) ripCont.addEventListener('change', () => { p.exercises.ripetute = readSubBlocks('ripBlocks-'+p.id, RIPETUTE_FIELDS); });
+    const velCont = document.getElementById('velBlocks-'+p.id);
+    if(velCont) velCont.addEventListener('change', () => { p.exercises.velocita = readSubBlocks('velBlocks-'+p.id, VELOCITA_FIELDS); });
+  });
 }
 
 function mean(arr){ return arr.reduce((a,b)=>a+b,0)/arr.length; }
@@ -1974,8 +2076,27 @@ async function saveSession(){
     };
     await dbPut(entry);
     await writeEntryToCloud(entry);
+
+    /* Scheda training collegata: stesse info di "Registra allenamento/partita",
+       compilate qui insieme al file .fit invece che a parte, per evitare doppio lavoro. */
+    const player = resolvedPlayerName(p);
+    const existingTraining = (await dbGetAll()).find(e => isTrainingEntry(e) && e.player === player && e.date === p.date);
+    const exercises = p.trainingType === 'allenamento' ? {
+      fartlek: p.exercises.hasFartlek ? {...p.exercises.fartlek, reps: calcFartlekReps(p.exercises.fartlek.totalMin, p.exercises.fartlek.fastSec, p.exercises.fartlek.slowSec)} : null,
+      ripetute: p.exercises.hasRipetute ? p.exercises.ripetute : [],
+      velocita: p.exercises.hasVelocita ? p.exercises.velocita : [],
+    } : null;
+    const trainingEntry = {
+      id: existingTraining ? existingTraining.id : uuid(),
+      kind:'training', date:p.date, player, type: p.trainingType,
+      rpe: p.rpe, fatigue: p.fatigue, notes: p.notes || '',
+      exercises, savedAt: now,
+    };
+    await dbPut(trainingEntry);
+    try{ await writeEntryToCloud(trainingEntry); }catch(err){ console.error(err); }
   }
   await refreshHistory();
+  await refreshTrainingList();
 
   let msg = toSave.length ? `${toSave.length} sessione/i salvate nello storico e su Cloudflare.` : '';
   if(skipped.length) msg += (msg?'\n':'') + `${skipped.length} file ignorati perché già presenti nello storico (stesso file, giocatore e data): ${skipped.map(p=>p.fileName).join(', ')}.`;
@@ -2149,11 +2270,34 @@ function drawTrendChart(){
 }
 
 /* ---------------- File input / DnD ---------------- */
+async function applyPlanToPlayer(p){
+  const plan = await getPlanForDate(p.date);
+  if(plan && (plan.fartlek || plan.ripetute || plan.velocita)){
+    p.hasPlan = true;
+    p.planNote = plan.note || '';
+    p.exercises.hasFartlek = !!plan.fartlek;
+    p.exercises.hasRipetute = !!plan.ripetute;
+    p.exercises.hasVelocita = !!plan.velocita;
+    p.exercises.fartlek = plan.fartlek ? {...(plan.fartlekDetail||{})} : {totalMin:null,fastSec:null,slowSec:null};
+    p.exercises.ripetute = plan.ripetute ? (plan.ripeteteDetail||[]).map(r=>({...r})) : [];
+    p.exercises.velocita = plan.velocita ? (plan.velocitaDetail||[]).map(v=>({...v})) : [];
+  } else {
+    p.hasPlan = false;
+    p.planNote = '';
+    p.exercises = { hasFartlek:false, hasRipetute:false, hasVelocita:false,
+      fartlek:{totalMin:null,fastSec:null,slowSec:null}, ripetute:[], velocita:[] };
+  }
+}
+function calcFartlekReps(total, fast, slow){
+  return (total>0 && fast>0 && slow>0) ? Math.floor((total*60)/(fast+slow)) : null;
+}
 async function handleFiles(fileList){
+  const added = [];
   for(const file of Array.from(fileList)){
-    try{ const buf = await file.arrayBuffer(); players.push(parseFIT(buf, file.name)); }
+    try{ const p = parseFIT(await file.arrayBuffer(), file.name); players.push(p); added.push(p); }
     catch(err){ alert(`Non sono riuscito a leggere "${file.name}": ${err.message}`); }
   }
+  for(const p of added){ await applyPlanToPlayer(p); }
   renderAll();
 }
 
