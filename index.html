@@ -361,7 +361,7 @@
 
   <div class="folder-bar" id="folderBar">
     <div class="folder-status" id="folderStatus">Connessione a Cloudflare…</div>
-    <div class="folder-btns"><button class="btn-ghost" id="reloadCloudBtn">Ricarica dal cloud</button><button class="btn-ghost" id="cloudSummaryBtn">Riepilogo cloud</button></div>
+    <div class="folder-btns"><button class="btn-ghost" id="reloadCloudBtn">Ricarica dal cloud</button><button class="btn-ghost" id="cloudSummaryBtn">Riepilogo cloud</button><button class="btn-ghost" id="cleanupFitTrainingBtn">Pulisci vecchie schede .fit</button></div>
   </div>
 
   <div class="dropzone" id="dropzone">
@@ -1971,9 +1971,9 @@ async function openDetailModal(entry){
   const linked = all.find(e => isTrainingEntry(e) && e.player === entry.player && e.date === entry.date) || null;
 
   let editRpeValue = entry.rpe ?? null;
-  let editFatigueValue = linked ? (linked.fatigue ?? null) : null;
-  let editTrainingType = linked ? linked.type : (entry.rhythmBadge==='partita' ? 'partita' : 'allenamento');
-  const ex = (linked && linked.exercises) ? linked.exercises : {fartlek:null, ripetute:[], velocita:[]};
+  let editFatigueValue = linked ? (linked.fatigue ?? null) : (entry.fatigue ?? null);
+  let editTrainingType = linked ? linked.type : (entry.trainingType || (entry.rhythmBadge==='partita' ? 'partita' : 'allenamento'));
+  const ex = (linked && linked.exercises) ? linked.exercises : (entry.exercises || {fartlek:null, ripetute:[], velocita:[]});
 
   const rpePillsHtml = Array.from({length:10},(_,i)=>i+1).map(n=>`<button type="button" class="rpe-pill ${entry.rpe===n?'active':''}" data-editrpe="${n}">${n}</button>`).join('');
   const fatiguePillsHtml = Array.from({length:10},(_,i)=>i+1).map(n=>`<button type="button" class="rpe-pill ${editFatigueValue===n?'active':''}" data-editfatigue="${n}">${n}</button>`).join('');
@@ -2157,14 +2157,16 @@ async function openDetailModal(entry){
       ripetute: hasRipetute ? readSubBlocks('editRipBlocks', RIPETUTE_FIELDS) : [],
       velocita: hasVelocita ? readSubBlocks('editVelBlocks', VELOCITA_FIELDS) : [],
     } : null;
-    const trainingEntry = {
-      id: linked ? linked.id : uuid(), kind:'training', date:newDate, player:newPlayer, type: editTrainingType,
-      rpe: editRpeValue, fatigue: editFatigueValue,
-      notes: document.getElementById('editEntryNotes').value.trim(),
-      exercises: newExercises, savedAt: Date.now(),
-    };
-    await dbPut(trainingEntry);
-    try{ await writeEntryToCloud(trainingEntry); }catch(err){ console.error(err); }
+    updated.fatigue = editFatigueValue;
+    updated.trainingType = editTrainingType;
+    updated.notes = document.getElementById('editEntryNotes').value.trim();
+    updated.exercises = newExercises;
+    await dbPut(updated);
+    try{ await writeEntryToCloud(updated); }catch(err){ console.error(err); }
+
+    /* Cancella eventuali vecchie schede separate create dalle versioni precedenti. */
+    const oldTrainingDuplicates = all.filter(en => isTrainingEntry(en) && en.player === newPlayer && en.date === newDate);
+    for(const dup of oldTrainingDuplicates){ try{ await deleteEntryFile(dup); }catch(err){} await dbDelete(dup.id); }
 
     await refreshHistory();
     closeDetailModal();
@@ -2190,7 +2192,13 @@ async function saveSession(){
       id: uuid(), savedAt: now, date: p.date, allenamento: p.allenamento, player: resolvedPlayerName(p), fileName: p.fileName,
       duration:p.duration, distance:p.distance, calories:p.calories, avgHR:p.avgHR, maxHR:p.maxHR, maxHRSetting:p.maxHRSetting,
       avgSpeed:p.avgSpeed, maxSpeed:p.maxSpeed, hrZonePct:p.hrZonePct, spZonePct:p.spZonePct,
-      rpe:p.rpe, rhythmType:p.rhythm.type, rhythmBadge:p.rhythm.badge, rhythmDetail:p.rhythm.detail,
+      rpe:p.rpe, fatigue:p.fatigue, trainingType:p.trainingType, notes:p.notes||'',
+      exercises: p.trainingType === 'allenamento' ? {
+        fartlek: p.exercises.hasFartlek ? {...p.exercises.fartlek, reps: calcFartlekReps(p.exercises.fartlek.totalMin, p.exercises.fartlek.fastSec, p.exercises.fartlek.slowSec)} : null,
+        ripetute: p.exercises.hasRipetute ? p.exercises.ripetute : [],
+        velocita: p.exercises.hasVelocita ? p.exercises.velocita : [],
+      } : null,
+      rhythmType:p.rhythm.type, rhythmBadge:p.rhythm.badge, rhythmDetail:p.rhythm.detail,
       rhythmCycles:p.rhythm.cycles, rhythmAvgActiveDur:p.rhythm.avgActiveDur, rhythmAvgRestDur:p.rhythm.avgRestDur,
       rhythmAvgRestHrPctMax:p.rhythm.avgRestHrPctMax, rhythmAvgRestDecay:p.rhythm.avgRestDecay,
       rhythmCorr:p.rhythm.corr, rhythmLag:p.rhythm.lag, restFraction:p.rhythm.restFraction,
@@ -2204,23 +2212,7 @@ async function saveSession(){
     await dbPut(entry);
     await writeEntryToCloud(entry);
 
-    /* Scheda training collegata: stesse info di "Registra allenamento/partita",
-       compilate qui insieme al file .fit invece che a parte, per evitare doppio lavoro. */
-    const player = resolvedPlayerName(p);
-    const existingTraining = (await dbGetAll()).find(e => isTrainingEntry(e) && e.player === player && e.date === p.date);
-    const exercises = p.trainingType === 'allenamento' ? {
-      fartlek: p.exercises.hasFartlek ? {...p.exercises.fartlek, reps: calcFartlekReps(p.exercises.fartlek.totalMin, p.exercises.fartlek.fastSec, p.exercises.fartlek.slowSec)} : null,
-      ripetute: p.exercises.hasRipetute ? p.exercises.ripetute : [],
-      velocita: p.exercises.hasVelocita ? p.exercises.velocita : [],
-    } : null;
-    const trainingEntry = {
-      id: existingTraining ? existingTraining.id : uuid(),
-      kind:'training', date:p.date, player, type: p.trainingType,
-      rpe: p.rpe, fatigue: p.fatigue, notes: p.notes || '',
-      exercises, savedAt: now,
-    };
-    await dbPut(trainingEntry);
-    try{ await writeEntryToCloud(trainingEntry); }catch(err){ console.error(err); }
+    /* RPE/allenamento sono memorizzati direttamente nella sessione .fit: nessun secondo file. */
   }
   await refreshHistory();
   await refreshTrainingList();
@@ -2450,6 +2442,26 @@ document.getElementById('cloudSummaryBtn').addEventListener('click', async () =>
   alert(`Voci totali (locale, sincronizzate col cloud): ${all.length}\n` +
     `- Sessioni .fit: ${sessions}\n- Schede RPE/allenamento: ${trainings}\n- Piani mister: ${plans}`);
 });
+document.getElementById('cleanupFitTrainingBtn').addEventListener('click', async () => {
+  const all = await dbGetAll();
+  const sessions = all.filter(isSessionEntry);
+  const trainings = all.filter(isTrainingEntry);
+  const duplicates = trainings.filter(t => sessions.some(s => linkKey(s.player,s.date) === linkKey(t.player,t.date)));
+  if(!duplicates.length){ alert('Nessuna vecchia scheda RPE/allenamento collegata a una sessione .fit.'); return; }
+  if(!confirm(`Trovate ${duplicates.length} vecchie schede RPE/allenamento associate a sessioni .fit.\n\nI dati RPE/allenamento verranno conservati nella sessione .fit e la scheda separata verrà eliminata.\n\nContinuare?`)) return;
+  for(const t of duplicates){
+    const session = sessions.find(x => linkKey(x.player,x.date) === linkKey(t.player,t.date));
+    if(session){
+      const merged = {...session, rpe:t.rpe ?? session.rpe, fatigue:t.fatigue ?? session.fatigue, trainingType:t.type || session.trainingType, notes:t.notes || session.notes || '', exercises:t.exercises || session.exercises || null};
+      await dbPut(merged);
+      try{ await writeEntryToCloud(merged); }catch(err){ console.error(err); }
+    }
+    try{ await deleteEntryFile(t); }catch(err){ console.error(err); }
+    await dbDelete(t.id);
+  }
+  await refreshHistory(); await refreshTrainingList();
+  alert(`Pulizia completata: eliminate ${duplicates.length} vecchie schede duplicate.`);
+});
 document.getElementById('teamPlayerSelect').addEventListener('change', e => { teamSelectedPlayer = e.target.value; renderTeam(); });
 
 
@@ -2580,7 +2592,8 @@ function planId(date){ return 'plan-' + date; }
 async function getPlanForDate(date){
   if(!date) return null;
   const all = await dbGetAll();
-  return all.find(e => isPlanEntry(e) && e.date === date) || null;
+  const matches = all.filter(e => isPlanEntry(e) && e.date === date);
+  return matches.sort((a,b)=>(b.savedAt||0)-(a.savedAt||0))[0] || null;
 }
 
 function misterToggleExerciseForms(){
