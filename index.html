@@ -2673,9 +2673,10 @@ const RIPETUTE_FIELDS = [
   {label:'Recupero tra serie (sec)', cls:'rip-recovery-set', key:'recoverySetSec'},
 ];
 const VELOCITA_FIELDS = [
-  {label:'N. scatti', cls:'vel-reps', key:'reps'},
-  {label:'Distanza (m)', cls:'vel-meters', key:'meters'},
-  {label:'Recupero tra ripetizioni (sec)', cls:'vel-recovery-rep', key:'recoveryRepSec'},
+  {label:'N. serie', cls:'vel-sets', key:'sets'},
+  {label:'N. scatti per serie', cls:'vel-reps-per-set', key:'repsPerSet'},
+  {label:'Distanza per scatto (m)', cls:'vel-meters', key:'meters'},
+  {label:'Recupero tra scatti (sec)', cls:'vel-recovery-rep', key:'recoveryRepSec'},
   {label:'Recupero tra serie (sec)', cls:'vel-recovery-set', key:'recoverySetSec'},
 ];
 function addSubBlock(containerId, fieldsConfig, presetValues){
@@ -2714,7 +2715,13 @@ function describeExercises(ex){
   const parts = [];
   if(ex.fartlek) parts.push(`Fartlek: ${ex.fartlek.totalMin??'?'}′ totali (veloce ${ex.fartlek.fastSec??'?'}s / lento ${ex.fartlek.slowSec??'?'}s, rec. set ${ex.fartlek.setRecoverySec??0}s, ~${ex.fartlek.reps??'?'} rip.)`);
   if(ex.ripetute && ex.ripetute.length) parts.push('Ripetute: ' + ex.ripetute.map(r=>`${r.reps}×${r.meters}m (max ${r.maxTimeSec}s, rec. rip ${r.recoveryRepSec??0}s, rec. serie ${r.recoverySetSec??0}s)`).join(', '));
-  if(ex.velocita && ex.velocita.length) parts.push('Scatti: ' + ex.velocita.map(v=>`${v.reps}×${v.meters}m (rec. rip ${v.recoveryRepSec??0}s, rec. serie ${v.recoverySetSec??0}s)`).join(', '));
+  if(ex.velocita && ex.velocita.length) parts.push('Scatti: ' + ex.velocita.map(v=>{
+    const sets=Number(v.sets)||0;
+    const reps=Number(v.repsPerSet)||Number(v.reps)||0;
+    const total=sets>0 && reps>0 ? sets*reps : reps;
+    const volume = sets>0 ? `${sets} serie × ${reps} scatti × ${v.meters??'?'}m` : `${total}×${v.meters??'?'}m`;
+    return `${volume} (tot. ${total} scatti, rec. scatto ${v.recoveryRepSec??0}s, rec. serie ${v.recoverySetSec??0}s)`;
+  }).join(', '));
   return parts.join(' · ');
 }
 
@@ -3439,7 +3446,10 @@ function exerciseLoadMetrics(entry, vam){
   };
 
   if(Array.isArray(ex.velocita)) for(const r of ex.velocita){
-    const reps=Number(r.reps)||0, m=Number(r.meters)||0; if(reps<=0||m<=0) continue;
+    // Nuovo formato: serie × scatti per serie. Manteniamo compatibilità con i vecchi piani che salvavano solo "reps".
+    const sets=Math.max(1, Number(r.sets)||1);
+    const repsPerSet=Number(r.repsPerSet)||Number(r.reps)||0;
+    const reps=sets*repsPerSet, m=Number(r.meters)||0; if(reps<=0||m<=0) continue;
     const meters=reps*m, pct=speedPctForSprintDistance(m);
     sprintMeters+=meters; repsTotal+=reps;
     if(pct>=0.90) sprintAbove90+=meters;
