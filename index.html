@@ -502,6 +502,7 @@
           <div class="meta-field"><label>Durata totale (min)</label><input type="number" min="1" id="misterFartlekTotal"></div>
           <div class="meta-field"><label>Durata set veloce (sec)</label><input type="number" min="1" id="misterFartlekFast"></div>
           <div class="meta-field"><label>Durata set lento (sec)</label><input type="number" min="1" id="misterFartlekSlow"></div>
+            <div class="meta-field"><label>Recupero tra set (sec)</label><input type="number" min="0" id="misterFartlekSetRecovery"></div>
         </div>
         <div class="calc-hint" id="misterFartlekRepsHint">Ripetizioni stimate: —</div>
       </div>
@@ -576,6 +577,7 @@
             <div class="meta-field"><label>Durata totale (min)</label><input type="number" min="1" id="fartlekTotal"></div>
             <div class="meta-field"><label>Durata set veloce (sec)</label><input type="number" min="1" id="fartlekFast"></div>
             <div class="meta-field"><label>Durata set lento (sec)</label><input type="number" min="1" id="fartlekSlow"></div>
+            <div class="meta-field"><label>Recupero tra set (sec)</label><input type="number" min="0" id="fartlekSetRecovery"></div>
           </div>
           <div class="calc-hint" id="fartlekRepsHint">Ripetizioni stimate: —</div>
         </div>
@@ -1438,6 +1440,7 @@ function renderPlayers(){
             <div class="meta-field"><label>Durata totale (min)</label><input type="number" min="1" class="fartlek-field" data-ffield="totalMin" data-id="${p.id}" value="${p.exercises.fartlek.totalMin??''}"></div>
             <div class="meta-field"><label>Durata set veloce (sec)</label><input type="number" min="1" class="fartlek-field" data-ffield="fastSec" data-id="${p.id}" value="${p.exercises.fartlek.fastSec??''}"></div>
             <div class="meta-field"><label>Durata set lento (sec)</label><input type="number" min="1" class="fartlek-field" data-ffield="slowSec" data-id="${p.id}" value="${p.exercises.fartlek.slowSec??''}"></div>
+            <div class="meta-field"><label>Recupero tra set (sec)</label><input type="number" min="0" class="fartlek-field" data-ffield="setRecoverySec" data-id="${p.id}" value="${p.exercises.fartlek.setRecoverySec??''}"></div>
           </div>
           <div class="calc-hint" id="fartlekRepsHint-${p.id}">Ripetizioni stimate: ${calcFartlekReps(p.exercises.fartlek.totalMin,p.exercises.fartlek.fastSec,p.exercises.fartlek.slowSec) ?? '—'}</div>
         </div>
@@ -2074,6 +2077,7 @@ async function openDetailModal(entry){
             <div class="meta-field"><label>Durata totale (min)</label><input type="number" min="1" id="editFartlekTotal" value="${ex.fartlek?.totalMin??''}"></div>
             <div class="meta-field"><label>Durata set veloce (sec)</label><input type="number" min="1" id="editFartlekFast" value="${ex.fartlek?.fastSec??''}"></div>
             <div class="meta-field"><label>Durata set lento (sec)</label><input type="number" min="1" id="editFartlekSlow" value="${ex.fartlek?.slowSec??''}"></div>
+            <div class="meta-field"><label>Recupero tra set (sec)</label><input type="number" min="0" id="editFartlekSetRecovery" value="${ex.fartlek?.setRecoverySec??0}"></div>
           </div>
           <div class="calc-hint" id="editFartlekRepsHint">Ripetizioni stimate: ${calcFartlekReps(ex.fartlek?.totalMin, ex.fartlek?.fastSec, ex.fartlek?.slowSec) ?? '—'}</div>
         </div>
@@ -2132,6 +2136,7 @@ async function openDetailModal(entry){
         document.getElementById('editFartlekTotal').value = fd.totalMin ?? '';
         document.getElementById('editFartlekFast').value = fd.fastSec ?? '';
         document.getElementById('editFartlekSlow').value = fd.slowSec ?? '';
+        document.getElementById('editFartlekSetRecovery').value = fd.setRecoverySec ?? 0;
         document.getElementById('editFartlekRepsHint').textContent = 'Ripetizioni stimate: ' + (calcFartlekReps(fd.totalMin, fd.fastSec, fd.slowSec) ?? '—');
         fillBlocksFromData('editRipBlocks', plan.ripeteteDetail, RIPETUTE_FIELDS);
         fillBlocksFromData('editVelBlocks', plan.velocitaDetail, VELOCITA_FIELDS);
@@ -2141,7 +2146,7 @@ async function openDetailModal(entry){
   document.getElementById('editHasFartlek').addEventListener('change', e => { document.getElementById('editFartlekForm').style.display = e.target.checked?'block':'none'; });
   document.getElementById('editHasRipetute').addEventListener('change', e => { document.getElementById('editRipeteteForm').style.display = e.target.checked?'block':'none'; });
   document.getElementById('editHasVelocita').addEventListener('change', e => { document.getElementById('editVelocitaForm').style.display = e.target.checked?'block':'none'; });
-  ['editFartlekTotal','editFartlekFast','editFartlekSlow'].forEach(id => document.getElementById(id).addEventListener('change', () => {
+  ['editFartlekTotal','editFartlekFast','editFartlekSlow','editFartlekSetRecovery'].forEach(id => document.getElementById(id).addEventListener('change', () => {
     const t = parseFloat(document.getElementById('editFartlekTotal').value), f = parseFloat(document.getElementById('editFartlekFast').value), s = parseFloat(document.getElementById('editFartlekSlow').value);
     document.getElementById('editFartlekRepsHint').textContent = 'Ripetizioni stimate: ' + (calcFartlekReps(t,f,s) ?? '—');
   }));
@@ -2186,6 +2191,7 @@ async function openDetailModal(entry){
         totalMin: parseFloat(document.getElementById('editFartlekTotal').value) || null,
         fastSec: parseFloat(document.getElementById('editFartlekFast').value) || null,
         slowSec: parseFloat(document.getElementById('editFartlekSlow').value) || null,
+        setRecoverySec: parseFloat(document.getElementById('editFartlekSetRecovery').value) || 0,
         reps: calcFartlekReps(parseFloat(document.getElementById('editFartlekTotal').value), parseFloat(document.getElementById('editFartlekFast').value), parseFloat(document.getElementById('editFartlekSlow').value)),
       } : null,
       ripetute: hasRipetute ? readSubBlocks('editRipBlocks', RIPETUTE_FIELDS) : [],
@@ -2547,10 +2553,14 @@ const RIPETUTE_FIELDS = [
   {label:'N. ripetute', cls:'rip-reps', key:'reps'},
   {label:'Distanza (m)', cls:'rip-meters', key:'meters'},
   {label:'Tempo max a serie (sec)', cls:'rip-maxtime', key:'maxTimeSec'},
+  {label:'Recupero tra ripetizioni (sec)', cls:'rip-recovery-rep', key:'recoveryRepSec'},
+  {label:'Recupero tra serie (sec)', cls:'rip-recovery-set', key:'recoverySetSec'},
 ];
 const VELOCITA_FIELDS = [
   {label:'N. scatti', cls:'vel-reps', key:'reps'},
   {label:'Distanza (m)', cls:'vel-meters', key:'meters'},
+  {label:'Recupero tra ripetizioni (sec)', cls:'vel-recovery-rep', key:'recoveryRepSec'},
+  {label:'Recupero tra serie (sec)', cls:'vel-recovery-set', key:'recoverySetSec'},
 ];
 function addSubBlock(containerId, fieldsConfig, presetValues){
   const container = document.getElementById(containerId);
@@ -2586,9 +2596,9 @@ function fillBlocksFromData(containerId, dataArray, fieldsConfig){
 function describeExercises(ex){
   if(!ex) return '';
   const parts = [];
-  if(ex.fartlek) parts.push(`Fartlek: ${ex.fartlek.totalMin??'?'}′ totali (veloce ${ex.fartlek.fastSec??'?'}s / lento ${ex.fartlek.slowSec??'?'}s, ~${ex.fartlek.reps??'?'} rip.)`);
-  if(ex.ripetute && ex.ripetute.length) parts.push('Ripetute: ' + ex.ripetute.map(r=>`${r.reps}×${r.meters}m (max ${r.maxTimeSec}s)`).join(', '));
-  if(ex.velocita && ex.velocita.length) parts.push('Scatti: ' + ex.velocita.map(v=>`${v.reps}×${v.meters}m`).join(', '));
+  if(ex.fartlek) parts.push(`Fartlek: ${ex.fartlek.totalMin??'?'}′ totali (veloce ${ex.fartlek.fastSec??'?'}s / lento ${ex.fartlek.slowSec??'?'}s, rec. set ${ex.fartlek.setRecoverySec??0}s, ~${ex.fartlek.reps??'?'} rip.)`);
+  if(ex.ripetute && ex.ripetute.length) parts.push('Ripetute: ' + ex.ripetute.map(r=>`${r.reps}×${r.meters}m (max ${r.maxTimeSec}s, rec. rip ${r.recoveryRepSec??0}s, rec. serie ${r.recoverySetSec??0}s)`).join(', '));
+  if(ex.velocita && ex.velocita.length) parts.push('Scatti: ' + ex.velocita.map(v=>`${v.reps}×${v.meters}m (rec. rip ${v.recoveryRepSec??0}s, rec. serie ${v.recoverySetSec??0}s)`).join(', '));
   return parts.join(' · ');
 }
 
@@ -2620,7 +2630,7 @@ function misterUpdateFartlekReps(){
     hint.textContent = 'Ripetizioni stimate: —';
   }
 }
-['misterFartlekTotal','misterFartlekFast','misterFartlekSlow'].forEach(id => document.getElementById(id).addEventListener('input', misterUpdateFartlekReps));
+['misterFartlekTotal','misterFartlekFast','misterFartlekSlow','misterFartlekSetRecovery'].forEach(id => document.getElementById(id).addEventListener('input', misterUpdateFartlekReps));
 document.getElementById('addMisterRipeteteBlock').addEventListener('click', () => addSubBlock('misterRipeteteBlocks', RIPETUTE_FIELDS));
 document.getElementById('addMisterVelocitaBlock').addEventListener('click', () => addSubBlock('misterVelocitaBlocks', VELOCITA_FIELDS));
 
@@ -2638,6 +2648,7 @@ async function loadMisterPlanIntoForm(){
   document.getElementById('misterFartlekTotal').value = fd.totalMin ?? '';
   document.getElementById('misterFartlekFast').value = fd.fastSec ?? '';
   document.getElementById('misterFartlekSlow').value = fd.slowSec ?? '';
+  document.getElementById('misterFartlekSetRecovery').value = fd.setRecoverySec ?? '';
   misterUpdateFartlekReps();
   fillBlocksFromData('misterRipeteteBlocks', plan && plan.ripeteteDetail, RIPETUTE_FIELDS);
   fillBlocksFromData('misterVelocitaBlocks', plan && plan.velocitaDetail, VELOCITA_FIELDS);
@@ -2656,6 +2667,7 @@ document.getElementById('misterPlanSaveBtn').addEventListener('click', async () 
       totalMin: parseFloat(document.getElementById('misterFartlekTotal').value) || null,
       fastSec: parseFloat(document.getElementById('misterFartlekFast').value) || null,
       slowSec: parseFloat(document.getElementById('misterFartlekSlow').value) || null,
+      setRecoverySec: parseFloat(document.getElementById('misterFartlekSetRecovery').value) || 0,
       reps: (function(){
         const t=parseFloat(document.getElementById('misterFartlekTotal').value), f=parseFloat(document.getElementById('misterFartlekFast').value), s=parseFloat(document.getElementById('misterFartlekSlow').value);
         return (t>0&&f>0&&s>0) ? Math.floor((t*60)/(f+s)) : null;
@@ -2802,7 +2814,7 @@ function updateFartlekReps(){
     hint.textContent = 'Ripetizioni stimate: —';
   }
 }
-['fartlekTotal','fartlekFast','fartlekSlow'].forEach(id => document.getElementById(id).addEventListener('input', updateFartlekReps));
+['fartlekTotal','fartlekFast','fartlekSlow','fartlekSetRecovery'].forEach(id => document.getElementById(id).addEventListener('input', updateFartlekReps));
 document.getElementById('addRipeteteBlock').addEventListener('click', () => addSubBlock('ripeteteBlocks', RIPETUTE_FIELDS));
 document.getElementById('addVelocitaBlock').addEventListener('click', () => addSubBlock('velocitaBlocks', VELOCITA_FIELDS));
 
@@ -2835,7 +2847,7 @@ function resetRegForm(){
   regType = 'allenamento';
   document.querySelectorAll('#regTypePills .tt-pill').forEach(b=>b.classList.toggle('active', b.dataset.type==='allenamento'));
   document.getElementById('regTrainingBlock').style.display = 'block';
-  document.getElementById('fartlekTotal').value=''; document.getElementById('fartlekFast').value=''; document.getElementById('fartlekSlow').value='';
+  document.getElementById('fartlekTotal').value=''; document.getElementById('fartlekFast').value=''; document.getElementById('fartlekSlow').value=''; document.getElementById('fartlekSetRecovery').value='';
   updateFartlekReps();
   document.getElementById('ripeteteBlocks').innerHTML='';
   document.getElementById('velocitaBlocks').innerHTML='';
@@ -2874,6 +2886,7 @@ document.getElementById('regSaveBtn').addEventListener('click', async () => {
         totalMin: parseFloat(document.getElementById('fartlekTotal').value) || null,
         fastSec: parseFloat(document.getElementById('fartlekFast').value) || null,
         slowSec: parseFloat(document.getElementById('fartlekSlow').value) || null,
+        setRecoverySec: parseFloat(document.getElementById('fartlekSetRecovery').value) || 0,
         reps: (function(){
           const t=parseFloat(document.getElementById('fartlekTotal').value), f=parseFloat(document.getElementById('fartlekFast').value), s=parseFloat(document.getElementById('fartlekSlow').value);
           return (t>0&&f>0&&s>0) ? Math.floor((t*60)/(f+s)) : null;
