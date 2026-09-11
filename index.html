@@ -815,7 +815,7 @@ const METRIC_INFO = {
   'Velocità massima (km/h)': 'Il picco di velocità istantanea registrato.',
   'RPE (1-10)': 'Rate of Perceived Exertion: percezione soggettiva dello sforzo dichiarata dal giocatore, da 1 (facile) a 10 (massimale).',
   'Vel. media (%VAM)': 'Velocità media espressa come % della VAM (Vitesse Maximale Aérobie) individuale, misurata con il test di Gacon.',
-  'Livello intensità (1-100)': 'Stima euristica (non un valore clinico) di quanto la sessione si avvicina, per intensità complessiva, a un allenamento tipico del calcio professionistico. Combina tempo vicino/oltre la VAM personale, punta di velocità relativa alla VAM, distanza percorsa per minuto, carico interno (TRIMP) al minuto, RPE, tempo in zona FC soglia/massimale (80-100% FCmax) e tempo con FC assoluta sopra i 150 bpm (conta come lavoro semi pesante anche a velocità bassa, es. 5-10 km/h, perché in allenamento è raro superare stabilmente i 160 bpm).',
+  'Livello intensità (1-100)': 'Stima euristica (non un valore clinico) dell’intensità complessiva della seduta. Usa i dati FIT (FC, velocità, TRIMP, RPE) e, quando disponibili, la struttura reale delle esercitazioni: scatti, ripetute, fartlek, serie, ripetizioni, distanze e recuperi. La componente esercizi completa il dato fisiologico senza sostituirlo.',
 };
 
 let players = [];
@@ -1110,21 +1110,111 @@ function computeProScore(p){
   const clamp01to100 = v => Math.max(0, Math.min(100, v));
   const durMin = p.duration/60;
 
-  const normVamHigh = clamp01to100((p.pctTimeAboveVam90||0) / 8 * 100);        // 8% del tempo >=90% VAM = 100
-  const normMaxSpeed = clamp01to100(((p.maxSpeedPctVam||0)) / 125 * 100);      // punta a 125% VAM = 100
-  const normTrimp = clamp01to100(((p.trimp||0)/durMin) / 3.0 * 100);           // 3.0 TRIMP/min = 100
-  const normRpe = clamp01to100(((p.rpe!=null?p.rpe:5)) / 7 * 100);             // RPE 7/10 = 100
+  /* Manteniamo i 7 assi già presenti: FC, VAM, velocità, distanza, TRIMP e RPE. */
+  const normVamHigh = clamp01to100((p.pctTimeAboveVam90||0) / 8 * 100);
+  const normMaxSpeed = clamp01to100(((p.maxSpeedPctVam||0)) / 125 * 100);
+  const normTrimp = clamp01to100(((p.trimp||0)/durMin) / 3.0 * 100);
+  const normRpe = clamp01to100(((p.rpe!=null?p.rpe:5)) / 7 * 100);
   const hrHigh = (p.hrZonePct?.hz3||0) + (p.hrZonePct?.hz4||0);
-  const normHrHigh = clamp01to100(hrHigh / 16 * 100);                          // 16% tempo in soglia/max = 100
-  /* Distanza percorsa in relazione al tempo: metri al minuto (equivalente alla velocità media) */
+  const normHrHigh = clamp01to100(hrHigh / 16 * 100);
   const distancePerMin = p.distance ? (p.distance/durMin) : 0;
-  const normDistanceRate = clamp01to100(distancePerMin / 90 * 100);            // 90 m/min (5.4 km/h medi) = 100
-  /* Lavoro "semi pesante" a FC assoluta alta, indipendentemente dalla velocità istantanea */
-  const normHrAbs150 = clamp01to100((p.pctTimeHrAbove150||0) / 35 * 100);      // 35% del tempo con FC>=150 = 100
+  const normDistanceRate = clamp01to100(distancePerMin / 90 * 100);
+  const normHrAbs150 = clamp01to100((p.pctTimeHrAbove150||0) / 35 * 100);
 
-  const score = normVamHigh*0.15 + normMaxSpeed*0.10 + normTrimp*0.20 + normRpe*0.10
-              + normHrHigh*0.15 + normDistanceRate*0.10 + normHrAbs150*0.20;
-  return Math.round(clamp01to100(score));
+  const baseScore = normVamHigh*0.15 + normMaxSpeed*0.10 + normTrimp*0.20 + normRpe*0.10
+                  + normHrHigh*0.15 + normDistanceRate*0.10 + normHrAbs150*0.20;
+
+  /*
+     NOVITÀ: l'intensità della singola seduta considera anche la struttura reale
+     dell'allenamento, cioè le stesse esercitazioni usate dal modello rischio:
+     - scatti/velocità: serie, ripetizioni, distanza e recuperi
+     - ripetute: ripetizioni, distanza, tempo massimo e recuperi
+     - fartlek: durata, rapporto veloce/lento e recupero
+     - partita
+     - densità dello stimolo e metri ad alta intensità relativi alla durata
+
+     Non sostituiamo i dati FIT: la componente esercizi completa il dato fisiologico.
+     Se non sono stati registrati esercizi strutturati, il vecchio punteggio resta
+     invariato per non penalizzare le sessioni storiche prive di dettaglio.
+  */
+  let exerciseData = false;
+  let exerciseScore = 0;
+  let exerciseParts = 0;
+  const ex = p.exercises || {};
+  const vam = Number(p.vamSetting) > 0 ? Number(p.vamSetting) : DEFAULT_VAM;
+  let em = null;
+  try { em = exerciseLoadMetrics(p, vam); } catch(err) { em = null; }
+
+  if(Array.isArray(ex.velocita) && ex.velocita.length){
+    exerciseData = true;
+    const blocks = ex.velocita.filter(r => Number(r.meters)>0 && ((Number(r.repsPerSet)||Number(r.reps)||0)>0));
+    const reps = blocks.reduce((a,r)=>a+(Math.max(1,Number(r.sets)||1)*(Number(r.repsPerSet)||Number(r.reps)||0)),0);
+    const meters = blocks.reduce((a,r)=>a+(Math.max(1,Number(r.sets)||1)*(Number(r.repsPerSet)||Number(r.reps)||0)*Number(r.meters||0)),0);
+    const fast = blocks.reduce((a,r)=>a+(Number(r.recoveryRepSec)>0&&Number(r.recoveryRepSec)<30?1:0),0);
+    const vol = clamp01to100(reps/24*100);
+    const dist = clamp01to100(meters/600*100);
+    const dens = clamp01to100((fast/Math.max(1,blocks.length))*100);
+    exerciseScore += vol*0.30 + dist*0.35 + dens*0.15;
+    exerciseParts += 0.80;
+  }
+
+  if(Array.isArray(ex.ripetute) && ex.ripetute.length){
+    exerciseData = true;
+    const blocks = ex.ripetute.filter(r => Number(r.meters)>0 && Number(r.reps)>0);
+    const reps = blocks.reduce((a,r)=>a+Number(r.reps||0),0);
+    const meters = blocks.reduce((a,r)=>a+Number(r.reps||0)*Number(r.meters||0),0);
+    const fastRecovery = blocks.reduce((a,r)=>a+(Number(r.recoveryRepSec)>0&&Number(r.recoveryRepSec)<45?1:0),0);
+    const highPace = blocks.reduce((a,r)=>{
+      const t=Number(r.maxTimeSec)||0, m=Number(r.meters)||0;
+      const pct=t>0 ? (m/t*3.6)/vam : 0;
+      return a+(pct>=0.90?1:0);
+    },0);
+    const vol = clamp01to100(reps/30*100);
+    const dist = clamp01to100(meters/2000*100);
+    const pace = blocks.length ? highPace/blocks.length*100 : 0;
+    const dens = blocks.length ? fastRecovery/blocks.length*100 : 0;
+    exerciseScore += vol*0.25 + dist*0.30 + pace*0.20 + dens*0.15;
+    exerciseParts += 0.90;
+  }
+
+  if(ex.fartlek && Number(ex.fartlek.totalMin)>0){
+    exerciseData = true;
+    const total=Number(ex.fartlek.totalMin)||0;
+    const fast=Number(ex.fartlek.fastSec)||0, slow=Number(ex.fartlek.slowSec)||0;
+    const ratio=(fast+slow)>0 ? fast/(fast+slow) : 0;
+    const reps=(fast>0&&slow>0) ? Math.floor(total*60/(fast+slow)) : 0;
+    const fastVolume=total*ratio;
+    const durationScore=clamp01to100(total/45*100);
+    const fastScore=clamp01to100(fastVolume/18*100);
+    const repScore=clamp01to100(reps/20*100);
+    const recoveryScore=(slow>0 && slow<45) ? 100 : slow>0 && slow<75 ? 65 : 25;
+    exerciseScore += durationScore*0.20 + fastScore*0.35 + repScore*0.20 + recoveryScore*0.10;
+    exerciseParts += 0.85;
+  }
+
+  if(p.trainingType==='partita' || p.rhythmBadge==='partita'){
+    exerciseData = true;
+    exerciseScore += 72;
+    exerciseParts += 1;
+  }
+
+  if(em && exerciseData){
+    /* La densità/HI non viene conteggiata due volte come volume puro: la usiamo
+       come correttivo della struttura della seduta. */
+    const densityNorm = clamp01to100((Number(em.densityLoad)||0) / Math.max(1,durMin) / 1.8 * 100);
+    const hiNorm = clamp01to100((Number(em.hi90)||0) / Math.max(1,Number(p.distance)||1) * 1000 / 12);
+    exerciseScore += densityNorm*0.12 + hiNorm*0.08;
+  }
+
+  if(exerciseData){
+    const exNorm = clamp01to100(exerciseParts>0 ? exerciseScore/exerciseParts : exerciseScore);
+    /* 75% fisiologia FIT già esistente + 25% struttura esercizi. */
+    let score = baseScore*0.75 + exNorm*0.25;
+    /* Fatigue è una risposta al carico, non un esercizio: piccolo correttivo, non dominante. */
+    if(p.fatigue!=null) score += clamp01to100((Number(p.fatigue)-5)*2);
+    return Math.round(clamp01to100(score));
+  }
+  return Math.round(clamp01to100(baseScore));
 }
 
 /* ---------------- Etichetta allenamento rilevata automaticamente ---------------- */
@@ -1489,6 +1579,11 @@ function renderHrSpeedChart(series){
   </div>`;
 }
 
+function refreshSingleSessionIntensity(p){
+  if(!p) return;
+  p.proScore = computeProScore(p);
+}
+
 function renderPlayers(){
   const list = document.getElementById('playersList');
   list.innerHTML = players.map((p, idx) => {
@@ -1645,6 +1740,7 @@ function renderPlayers(){
     const p = players.find(p=>p.id===e.target.dataset.id); if(!p) return;
     p.rpe = parseInt(e.target.dataset.rpe,10);
     p.srpe = p.rpe!=null ? p.rpe*(p.duration/60) : null;
+    refreshSingleSessionIntensity(p);
     renderPlayers(); renderTeam();
   }));
   list.querySelectorAll('[data-remove]').forEach(btn => btn.addEventListener('click', e => {
@@ -1656,18 +1752,21 @@ function renderPlayers(){
   list.querySelectorAll('[data-typebtn]').forEach(btn => btn.addEventListener('click', e => {
     const p = players.find(p=>p.id===e.target.dataset.id); if(!p) return;
     p.trainingType = e.target.dataset.typebtn;
+    refreshSingleSessionIntensity(p);
     renderPlayers(); renderTeam();
   }));
   /* --- Affaticamento residuo passato --- */
   list.querySelectorAll('[data-fatigue]').forEach(btn => btn.addEventListener('click', e => {
     const p = players.find(p=>p.id===e.target.dataset.id); if(!p) return;
     p.fatigue = parseInt(e.target.dataset.fatigue,10);
+    refreshSingleSessionIntensity(p);
     renderPlayers(); renderTeam();
   }));
   /* --- Checkbox esercitazioni svolte --- */
   list.querySelectorAll('.ex-check').forEach(chk => chk.addEventListener('change', e => {
     const p = players.find(p=>p.id===e.target.dataset.id); if(!p) return;
     p.exercises[e.target.dataset.ex] = e.target.checked;
+    refreshSingleSessionIntensity(p);
     const map = {hasFartlek:'fartlek', hasRipetute:'ripetute', hasVelocita:'velocita'};
     const formEl = list.querySelector(`[data-exform="${map[e.target.dataset.ex]}"][data-id="${p.id}"]`);
     if(formEl) formEl.style.display = e.target.checked ? 'block' : 'none';
@@ -1679,6 +1778,8 @@ function renderPlayers(){
     p.exercises.fartlek[e.target.dataset.ffield] = isFinite(v) ? v : null;
     const hint = document.getElementById('fartlekRepsHint-'+p.id);
     if(hint) hint.textContent = 'Ripetizioni stimate: ' + (calcFartlekReps(p.exercises.fartlek.totalMin, p.exercises.fartlek.fastSec, p.exercises.fartlek.slowSec) ?? '—');
+    refreshSingleSessionIntensity(p);
+    renderPlayers(); renderTeam();
   }));
   /* --- Blocchi Ripetute/Velocità: aggiunta riga e sincronizzazione dati --- */
   list.querySelectorAll('[data-addblock]').forEach(btn => btn.addEventListener('click', e => {
@@ -1694,9 +1795,9 @@ function renderPlayers(){
     if(p.exercises.hasRipetute) fillBlocksFromData('ripBlocks-'+p.id, p.exercises.ripetute, RIPETUTE_FIELDS);
     if(p.exercises.hasVelocita) fillBlocksFromData('velBlocks-'+p.id, p.exercises.velocita, VELOCITA_FIELDS);
     const ripCont = document.getElementById('ripBlocks-'+p.id);
-    if(ripCont) ripCont.addEventListener('change', () => { p.exercises.ripetute = readSubBlocks('ripBlocks-'+p.id, RIPETUTE_FIELDS); });
+    if(ripCont) ripCont.addEventListener('change', () => { p.exercises.ripetute = readSubBlocks('ripBlocks-'+p.id, RIPETUTE_FIELDS); refreshSingleSessionIntensity(p); renderPlayers(); renderTeam(); });
     const velCont = document.getElementById('velBlocks-'+p.id);
-    if(velCont) velCont.addEventListener('change', () => { p.exercises.velocita = readSubBlocks('velBlocks-'+p.id, VELOCITA_FIELDS); });
+    if(velCont) velCont.addEventListener('change', () => { p.exercises.velocita = readSubBlocks('velBlocks-'+p.id, VELOCITA_FIELDS); refreshSingleSessionIntensity(p); renderPlayers(); renderTeam(); });
   });
 }
 
@@ -2317,6 +2418,7 @@ async function openDetailModal(entry){
     updated.trainingType = editTrainingType;
     updated.notes = document.getElementById('editEntryNotes').value.trim();
     updated.exercises = newExercises;
+    updated.proScore = computeProScore(updated);
     await dbPut(updated);
     try{ await writeEntryToCloud(updated); }catch(err){ console.error(err); }
 
@@ -2344,6 +2446,7 @@ async function saveSession(){
 
   const now = Date.now();
   for(const p of toSave){
+    refreshSingleSessionIntensity(p);
     const entry = {
       id: uuid(), savedAt: now, date: p.date, allenamento: p.allenamento, player: resolvedPlayerName(p), fileName: p.fileName,
       duration:p.duration, distance:p.distance, calories:p.calories, avgHR:p.avgHR, maxHR:p.maxHR, maxHRSetting:p.maxHRSetting,
@@ -2558,11 +2661,13 @@ async function applyPlanToPlayer(p){
     p.exercises.fartlek = plan.fartlek ? {...(plan.fartlekDetail||{})} : {totalMin:null,fastSec:null,slowSec:null};
     p.exercises.ripetute = plan.ripetute ? (plan.ripeteteDetail||[]).map(r=>({...r})) : [];
     p.exercises.velocita = plan.velocita ? (plan.velocitaDetail||[]).map(v=>({...v})) : [];
+    refreshSingleSessionIntensity(p);
   } else {
     p.hasPlan = false;
     p.planNote = '';
     p.exercises = { hasFartlek:false, hasRipetute:false, hasVelocita:false,
       fartlek:{totalMin:null,fastSec:null,slowSec:null}, ripetute:[], velocita:[] };
+    refreshSingleSessionIntensity(p);
   }
 }
 function calcFartlekReps(total, fast, slow){
