@@ -341,6 +341,122 @@
   @media (max-width:900px){.wrap{max-width:100%;padding:0 18px}h1{font-size:48px}.player-card,.team-summary,.trends-panel{padding:18px}}
   @media (max-width:640px){body{padding-bottom:40px}.wrap{padding:0 12px}header.hero{padding:28px 0 24px}.center-circle{width:170px;height:170px}.crest{width:96px}h1{font-size:38px}header.hero p{font-size:14px}.folder-bar,.dropzone{max-width:100%}.folder-bar{align-items:stretch}.folder-status{min-width:0}.folder-btns{width:100%}.folder-btns button{flex:1}.dropzone{padding:28px 14px}.player-card{padding:16px 14px}.meta-form{display:grid;grid-template-columns:1fr;gap:10px;width:100%}.meta-field select,.meta-field input[type=text],.meta-field input[type=date],.meta-field input[type=number],.meta-field input.maxhr-input,.meta-field input.date-input,.meta-field .readonly-field{min-width:0;max-width:none;width:100%}.stat-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.rhythm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.team-summary,.trends-panel{padding:14px 10px;overflow-x:auto}table.agg{min-width:620px}.history-entry{align-items:flex-start;padding:12px}.chart-wrap{min-height:240px;padding:10px}.modal-overlay{padding:16px 8px}.save-row .btn-primary{width:100%}}
   @media (max-width:380px){h1{font-size:33px}.rpe-pills{flex-wrap:wrap}}
+
+/* ===== Responsive pass v9 ===== */
+*,*::before,*::after{box-sizing:border-box}
+html{width:100%;overflow-x:hidden;-webkit-text-size-adjust:100%}
+body{width:100%;min-width:0;overflow-x:hidden}
+img,svg,canvas{max-width:100%;height:auto}
+button,input,select,textarea{max-width:100%;font:inherit}
+.wrap,.app-view,.team-summary,.trends-panel,.player-card,.risk-card,.exercise-block,.training-entry,.plan-entry{min-width:0}
+.meta-form,.block-row,.sub-block,.save-row,.folder-bar,.folder-btns,.te-head,.risk-head,.pe-tags{min-width:0}
+.chart-wrap{width:100%;min-width:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.svg-chart{min-width:520px}
+.compare-row{min-width:0}
+.risk-team-chart{width:100%;min-width:0}
+
+@media (max-width:900px){
+  .wrap{width:100%;max-width:100%;padding-left:18px;padding-right:18px}
+  header.hero{overflow:hidden}
+  .meta-form{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .meta-field{min-width:0}
+  .meta-field select,.meta-field input,.meta-field .readonly-field{width:100%;min-width:0;max-width:none}
+  .player-card,.team-summary,.trends-panel,.risk-card{max-width:100%}
+  .risk-team-bar-row{grid-template-columns:minmax(80px,110px) minmax(80px,1fr) 36px 52px}
+}
+
+@media (max-width:640px){
+  body{font-size:14px}
+  .wrap{padding-left:10px;padding-right:10px}
+  header.hero{padding-left:8px;padding-right:8px}
+  h1{font-size:clamp(30px,9vw,38px);line-height:1.02;word-break:break-word}
+  header.hero p{max-width:100%;line-height:1.5}
+  .app-nav{width:100%;gap:7px;flex-wrap:wrap}
+  .app-nav-label{font-size:10px}
+  .app-nav select{min-width:0;width:100%;padding:10px 11px}
+  .folder-bar{width:100%;padding:10px;gap:9px}
+  .folder-status{width:100%;min-width:0}
+  .folder-btns{display:grid;grid-template-columns:1fr 1fr;width:100%}
+  .folder-btns button{width:100%;min-width:0}
+  .dropzone{width:100%;min-height:160px;padding:24px 12px}
+
+  .meta-form{grid-template-columns:1fr;gap:8px}
+  .meta-field{width:100%}
+  .meta-field label{display:block;margin-bottom:4px}
+  .stat-row,.rhythm-stats{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .stat{min-width:0;padding:10px 8px}
+  .stat .v{font-size:18px}
+  .history-entry{display:grid;grid-template-columns:1fr;gap:7px}
+  .history-entry .hname{min-width:0}
+  .history-entry .hstats{gap:8px}
+  .compare-row{display:grid;grid-template-columns:1fr;gap:6px;align-items:stretch}
+  .compare-row .name{width:auto;max-width:100%}
+  .compare-row .bar{width:100%}
+
+  .team-summary,.trends-panel{padding:12px 8px;overflow:visible}
+  table.agg{display:block;width:100%;min-width:0;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
+  table.agg thead,table.agg tbody{width:max-content;min-width:100%}
+  table.agg th,table.agg td{padding:8px 7px;font-size:11px}
+
+  .chart-tabs{display:flex;gap:6px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:5px;-webkit-overflow-scrolling:touch}
+  .chart-tabs button{flex:0 0 auto;white-space:nowrap}
+  .chart-wrap{padding:7px;overflow-x:auto}
+  .svg-chart{min-width:560px}
+
+  .exercise-block{padding:12px 10px;margin-bottom:10px}
+  .block-row{gap:8px}
+  .block-row>.field,.block-row>.meta-field{flex:1 1 140px;min-width:0}
+  .sub-block{padding:10px;gap:8px}
+  .sub-block>*{min-width:0}
+  .sub-block input,.sub-block select{width:100%;min-width:0}
+  .sub-block .remove-block-btn{width:100%;margin-top:2px}
+  .save-row{display:grid;grid-template-columns:1fr;gap:8px}
+  .save-row button{width:100%}
+
+  .risk-team-chart{gap:10px}
+  .risk-team-bar-row{grid-template-columns:1fr 42px;gap:5px 8px;padding:7px 0}
+  .risk-team-bar-name{grid-column:1/3;font-size:11px}
+  .risk-team-bar-track{grid-column:1;grid-row:2;height:16px}
+  .risk-team-bar-value{grid-column:2;grid-row:2;font-size:12px}
+  .risk-team-bar-trend{grid-column:2;grid-row:3;text-align:right;font-size:10px}
+  .risk-team-bar-row:has(.risk-team-bar-trend){padding-bottom:9px}
+
+  .risk-card{padding:12px 11px}
+  .risk-card .risk-head{gap:7px}
+  .risk-card ul{padding-left:16px}
+  .risk-next-plan{padding:12px}
+  .risk-next-plan .decision{font-size:16px}
+
+  .modal-overlay{padding:8px}
+  .modal{width:100%;max-width:100%;max-height:calc(100dvh - 16px);overflow-y:auto;padding:18px 12px}
+}
+
+@media (max-width:420px){
+  .wrap{padding-left:8px;padding-right:8px}
+  h1{font-size:clamp(28px,9.5vw,34px)}
+  .center-circle{width:145px;height:145px}
+  .crest{width:82px}
+  .stat-row,.rhythm-stats{grid-template-columns:1fr 1fr;gap:6px}
+  .stat .v{font-size:16px}
+  .stat .l{font-size:9px}
+  .btn-primary,.btn-secondary,.btn-danger{padding:9px 10px;font-size:11px}
+  .plan-entry{padding:10px 11px;gap:8px}
+  .plan-entry .pe-date{min-width:0;width:100%}
+}
+
+@media (max-width:360px){
+  .wrap{padding-left:6px;padding-right:6px}
+  .folder-btns{grid-template-columns:1fr}
+  .stat-row,.rhythm-stats{grid-template-columns:1fr}
+  .svg-chart{min-width:500px}
+  .app-nav-label{width:100%}
+}
+
+@media (hover:none){
+  button,select,input[type=checkbox],input[type=radio]{min-height:40px}
+  .rpe-pill{min-height:38px}
+}
+
 </style>
 </head>
 <body>
@@ -3308,8 +3424,19 @@ function exerciseLoadMetrics(entry, vam){
   let sprintAbove90=0, repeatAbove90=0, fartlekAbove90=0;
   let sprintAbove100=0, repeatAbove100=0, fartlekAbove100=0;
   let accelerationStress=0, repsTotal=0;
+  let densityLoad=0, densityWeightedMeters=0, shortRecoveryReps=0;
   const above90Threshold=0.90*vam;
   const speedPctForSprintDistance = m => Math.min(1.20, Math.max(0.80, 0.82 + 0.22*(1-Math.exp(-Math.max(1,m)/18))));
+  const recoveryFactor = sec => {
+    const r=Number(sec);
+    if(!Number.isFinite(r) || r<=0) return 1.08; // recupero non specificato: prudenza moderata
+    if(r<20) return 1.22;
+    if(r<30) return 1.16;
+    if(r<45) return 1.10;
+    if(r<60) return 1.04;
+    if(r<90) return 1.00;
+    return 0.96;
+  };
 
   if(Array.isArray(ex.velocita)) for(const r of ex.velocita){
     const reps=Number(r.reps)||0, m=Number(r.meters)||0; if(reps<=0||m<=0) continue;
@@ -3317,34 +3444,49 @@ function exerciseLoadMetrics(entry, vam){
     sprintMeters+=meters; repsTotal+=reps;
     if(pct>=0.90) sprintAbove90+=meters;
     if(pct>=1.00) sprintAbove100+=meters;
-    // I 10-20 m hanno meno metri "sopra VAM" ma più richiesta di accelerazione.
     accelerationStress += meters * (1 + 0.45*Math.exp(-m/15));
+    const rf=recoveryFactor(r.recoveryRepSec);
+    densityLoad += reps * rf * (m>=30 ? 1.15 : 1.30);
+    densityWeightedMeters += meters*rf;
+    if(Number(r.recoveryRepSec)>0 && Number(r.recoveryRepSec)<45) shortRecoveryReps+=reps;
+    if(Number(r.recoveryRepSec)>0 && Number(r.recoveryRepSec)<30) densityLoad += reps*0.12;
+    if(Number(r.recoverySetSec)>0 && Number(r.recoverySetSec)<90) densityLoad += reps*0.08;
   }
   if(Array.isArray(ex.ripetute)) for(const r of ex.ripetute){
     const reps=Number(r.reps)||0, m=Number(r.meters)||0; if(reps<=0||m<=0) continue;
     const meters=reps*m; repeatMeters+=meters; repsTotal+=reps;
     const t=Number(r.maxTimeSec)||0;
-    let speed=pct=0;
+    let speed=0;
     if(t>0) speed=(m/t*3.6)/vam;
     else speed=Math.min(1.10,Math.max(0.75,0.82+0.20*(1-Math.exp(-m/180))));
     if(speed>=0.90) repeatAbove90+=meters;
     if(speed>=1.00) repeatAbove100+=meters;
+    const rf=recoveryFactor(r.recoveryRepSec);
+    densityLoad += reps * rf * (speed>=1 ? 1.25 : 1.10);
+    densityWeightedMeters += meters*rf;
+    if(Number(r.recoveryRepSec)>0 && Number(r.recoveryRepSec)<45) shortRecoveryReps+=reps;
+    if(Number(r.recoveryRepSec)>0 && Number(r.recoveryRepSec)<30) densityLoad += reps*0.12;
+    if(Number(r.recoverySetSec)>0 && Number(r.recoverySetSec)<90) densityLoad += reps*0.08;
   }
   if(ex.fartlek && Number(ex.fartlek.totalMin)>0){
     const fast=Number(ex.fartlek.fastSec)||0, slow=Number(ex.fartlek.slowSec)||0, total=Number(ex.fartlek.totalMin)*60;
     if(fast>0 && total>0){
       const reps=slow>0 ? Math.floor(total/(fast+slow)) : Math.floor(total/fast);
       fartlekFastMeters=Math.max(0,reps)*fast*vam/3.6;
-      // L'utente definisce la parte veloce come 80-120% VAM: assumiamo 100% come valore centrale
-      // e il 50% dei metri veloci sopra il 100% come stima neutra dell'esposizione.
       fartlekAbove90=fartlekFastMeters; fartlekAbove100=fartlekFastMeters*0.5;
+      const ratio=slow>0 ? fast/(fast+slow) : 1;
+      const rf=recoveryFactor(slow);
+      densityLoad += reps * (1 + ratio*1.8) * rf;
+      densityWeightedMeters += fartlekFastMeters*rf;
+      if(slow>0 && slow<45) shortRecoveryReps+=reps;
+      if(Number(ex.fartlek.setRecoverySec)>0 && Number(ex.fartlek.setRecoverySec)<90) densityLoad += reps*0.08;
     }
   }
   const hi90=sprintAbove90+repeatAbove90+fartlekAbove90;
   const hi100=sprintAbove100+repeatAbove100+fartlekAbove100;
-  return {sprintMeters,repeatMeters,fartlekFastMeters,hi90,hi100,accelerationStress,repsTotal};
+  const densityPer1000=hi90>0 ? densityWeightedMeters/hi90 : 0;
+  return {sprintMeters,repeatMeters,fartlekFastMeters,hi90,hi100,accelerationStress,repsTotal,densityLoad,densityWeightedMeters,densityPer1000,shortRecoveryReps};
 }
-
 function calculateRunningCapacity(player, sessions, entries, refDate, vam){
   const start28=dateAddDays(refDate,-28), start7=dateAddDays(refDate,-7);
   const recent=entries.filter(e=>e.date>=start7&&e.date<refDate);
@@ -3359,8 +3501,14 @@ function calculateRunningCapacity(player, sessions, entries, refDate, vam){
   const recentSprint=recent.reduce((sum,e)=>sum+exerciseLoadMetrics(e,vam).sprintMeters,0);
   const recentRepeat=recent.reduce((sum,e)=>sum+exerciseLoadMetrics(e,vam).repeatMeters,0);
   const recentFartlek=recent.reduce((sum,e)=>sum+exerciseLoadMetrics(e,vam).fartlekFastMeters,0);
-  const recentAbove100=recent.reduce((sum,e)=>sum+exerciseLoadMetrics(e,vam).hi100,0);
-  const chronicAbove100=entries.filter(e=>e.date>=start28&&e.date<refDate).reduce((sum,e)=>sum+exerciseLoadMetrics(e,vam).hi100,0)/4;
+  const recentMetrics=recent.map(e=>exerciseLoadMetrics(e,vam));
+  const recentAbove100=recentMetrics.reduce((sum,m)=>sum+m.hi100,0);
+  const recentDensity=recentMetrics.reduce((sum,m)=>sum+m.densityLoad,0);
+  const recentShortRecovery=recentMetrics.reduce((sum,m)=>sum+m.shortRecoveryReps,0);
+  const chronicMetrics=entries.filter(e=>e.date>=start28&&e.date<refDate).map(e=>exerciseLoadMetrics(e,vam));
+  const chronicAbove100=chronicMetrics.reduce((sum,m)=>sum+m.hi100,0)/4;
+  const chronicDensity=chronicMetrics.reduce((sum,m)=>sum+m.densityLoad,0)/4;
+  const densityRatio=chronicDensity>0 ? recentDensity/chronicDensity : null;
   // Non esiste in letteratura un "numero magico" universale di metri sicuri.
   // Usiamo quindi una capacità individuale basata sul carico abituale del giocatore,
   // con bande conservative 0.75x-1.25x e un tetto prudenziale 1.50x della media cronica.
@@ -3370,7 +3518,7 @@ function calculateRunningCapacity(player, sessions, entries, refDate, vam){
   const ratio=base>0 ? recentLoad/base : null;
   let status='dati insufficienti';
   if(base>0){ if(ratio<0.60) status='sottoallenamento'; else if(ratio<=1.25) status='normoallenamento'; else if(ratio<=1.50) status='sovraccarico'; else status='sovraesposizione'; }
-  return {vam,chronicWeek:base,recentLoad,recentSprint,recentRepeat,recentFartlek,recentAbove100,chronicAbove100,maxNormo,maxPrudential,ratio,status};
+  return {vam,chronicWeek:base,recentLoad,recentSprint,recentRepeat,recentFartlek,recentAbove100,chronicAbove100,maxNormo,maxPrudential,ratio,status,recentDensity,chronicDensity,densityRatio,recentShortRecovery};
 }
 
 async function refreshRiskPage(){
@@ -3419,11 +3567,22 @@ function calculateRiskSnapshot(player, all, asOfDate=null){
   if(highTypeShare>=.60)add(6);else if(highTypeShare>=.45)add(3);
   if(running.ratio!=null){if(running.ratio>1.50)add(16);else if(running.ratio>1.25)add(9);else if(running.ratio<0.60)add(2);}
   if(running.recentAbove100>Math.max(200,running.chronicAbove100*1.5))add(8);
+  // Densità: stesso volume non significa stesso stress. Recuperi brevi tra ripetizioni/serie
+  // aumentano la richiesta; il confronto è sempre con la densità abituale dello stesso giocatore.
+  if(running.densityRatio!=null){
+    if(running.densityRatio>=1.50)add(8); else if(running.densityRatio>=1.25)add(4);
+  }
+  if(running.recentShortRecovery>=20)add(3); else if(running.recentShortRecovery>=10)add(1);
   if(typeCounts.velocita>=3)add(4); if(typeCounts.ripetute>=3)add(4); if(typeCounts.fartlek>=4)add(3);
   if(avgFat!=null&&avgFat>=7)add(8);else if(avgFat!=null&&avgFat>=5)add(5);
   if(avgRpe!=null&&avgRpe>=8)add(3); if(efficiencyDrop!=null&&efficiencyDrop>=12)add(2);
   const scoreFinal=Math.round(clamp100(score));
-  return {player,score:scoreFinal,acwr,acute7,hi7,consecutive,highTypeShare,avgFat,avgRpe,running,vamInfo,form:formScoreForSessions(sessions)};
+  let periodizationStatus='Costruzione controllata';
+  if(running.ratio!=null && running.ratio<0.60) periodizationStatus='Sottoesposizione / mantenimento';
+  else if(scoreFinal>=75 || (running.ratio!=null&&running.ratio>1.50) || (running.densityRatio!=null&&running.densityRatio>1.50)) periodizationStatus='Sovraesposizione: deload consigliato';
+  else if(scoreFinal>=55 || (running.ratio!=null&&running.ratio>1.25) || (running.densityRatio!=null&&running.densityRatio>1.25)) periodizationStatus='Overload controllato: non aumentare';
+  else if(scoreFinal<40 && running.ratio!=null && running.ratio>=0.80 && running.ratio<=1.15) periodizationStatus='Banda abituale / pronto a progressione';
+  return {player,score:scoreFinal,acwr,acute7,hi7,consecutive,highTypeShare,avgFat,avgRpe,running,vamInfo,periodizationStatus,form:formScoreForSessions(sessions)};
 }
 
 function renderRiskTeamPage(all){
@@ -3498,12 +3657,14 @@ async function renderRiskPage(player, all){
         <div class="stat-card"><div class="stat-label term-tip" title="VAM/MAS = velocità massima aerobica individuale. Qui viene usata come riferimento per normalizzare il lavoro di corsa; se non c'è un test recente, l'app può stimarla dai FIT con una finestra sostenuta di 5 minuti.">VAM INDIVIDUALE</div><div class="stat-value">${running.vam.toFixed(1)}</div><div class="stat-sub">km/h · ${vamInfo.source}</div></div>
         <div class="stat-card"><div class="stat-label term-tip" title="Lavoro intenso individualizzato: metri corsi a velocità pari o superiore al 90% della VAM. È una metrica di esposizione, non una soglia diagnostica.">HI ≥90% VAM · 7 GIORNI</div><div class="stat-value">${Math.round(running.recentLoad)}</div><div class="stat-sub">m · banda alta ${running.maxNormo?Math.round(running.maxNormo):'—'} m</div></div>
         <div class="stat-card"><div class="stat-label term-tip" title="Metri sopra il 100% della VAM. Il dato è più selettivo e rappresenta lavoro sopra la velocità aerobica massima stimata.">>100% VAM · 7 GIORNI</div><div class="stat-value">${Math.round(running.recentAbove100)}</div><div class="stat-sub">m</div></div>
-        <div class="stat-card"><div class="stat-label">STATO CARICO CORSA</div><div class="stat-value" style="font-size:18px;">${running.status}</div><div class="stat-sub">${running.ratio==null?'base insufficiente':Math.round(running.ratio*100)+'% della media cronica'}</div></div>
+        <div class="stat-card"><div class="stat-label">STATO ESPOSIZIONE</div><div class="stat-value" style="font-size:17px;">${running.status}</div><div class="stat-sub">${running.ratio==null?'base insufficiente':Math.round(running.ratio*100)+'% della media cronica'}</div></div>
+        <div class="stat-card"><div class="stat-label term-tip" title="Indice di densità: considera recuperi tra ripetizioni/serie e durata delle fasi veloci. A parità di metri, recuperi più brevi aumentano la densità dello stimolo. Il confronto è individuale sulla storia delle 4 settimane.">DENSITÀ STIMOLO</div><div class="stat-value" style="font-size:17px;">${running.densityRatio==null?'—':Math.round(running.densityRatio*100)+'%'}</div><div class="stat-sub">vs media cronica · ${running.recentShortRecovery||0} rip. con recupero breve</div></div>
       </div>
       <div style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:8px;font-size:12px;line-height:1.7;color:var(--chalk-dim);">
         <b style="color:var(--chalk);">Dettaglio corsa veloce 7 giorni:</b> scatti ${Math.round(running.recentSprint)} m · ripetute ${Math.round(running.recentRepeat)} m · Fartlek veloce ${Math.round(running.recentFartlek)} m · totale ≥90% VAM ${Math.round(running.recentLoad)} m.<br>
         <b style="color:var(--chalk);">Capacità individuale:</b> media cronica ${running.chronicWeek?Math.round(running.chronicWeek):'—'} m/settimana · banda normo fino a ${running.maxNormo?Math.round(running.maxNormo):'—'} m · fascia di sovraesposizione oltre ${running.maxPrudential?Math.round(running.maxPrudential):'—'} m.
       </div>
+      <div style="margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:8px;font-size:12px;line-height:1.65;"><b style="color:var(--chalk);">Stato periodizzazione:</b> ${escXml(snap.periodizationStatus)}. ${running.densityRatio!=null&&running.densityRatio>1.25?'La densità recente è aumentata rispetto alla propria storia: prima di aumentare ancora volume o velocità, privilegiare recupero/adattamento.':'La densità non mostra un incremento marcato rispetto alla storia disponibile.'}</div>
       <div class="risk-advice ${riskClass==='low'?'ok':''}" style="margin-top:12px;">${advice}</div>
     </div>
     <div class="risk-card"><div class="risk-head"><span class="risk-name">Perché il punteggio è cambiato</span></div>${reasons.length?`<ul>${reasons.map(r=>`<li>${r}</li>`).join('')}</ul>`:'<div style="font-size:12px;color:var(--chalk-dim);">Nessun segnale forte rilevato nei dati disponibili.</div>'}</div>
