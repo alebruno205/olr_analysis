@@ -427,10 +427,7 @@
           <thead><tr><th>Metrica</th><th>Media</th></tr></thead>
           <tbody id="aggTableBody"></tbody>
         </table>
-        <div class="team-zone-chart" id="teamZoneChartWrap">
-          <h4 style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--chalk-dim);margin:0 0 14px;">Tipo di allenamento rilevato per sessione</h4>
-          <div class="compare-rhythm" id="teamRhythmCompare"></div>
-        </div>
+
       </div>
       <div id="playerViewContent" style="display:none;"></div>
     </div>
@@ -1659,10 +1656,8 @@ function renderTeam(){
     document.getElementById('teamHistoryFilterRow').style.display = 'none';
     document.getElementById('teamFilterPillsRow').style.display = 'none';
     document.getElementById('aggTableBody').innerHTML = '';
-    document.getElementById('teamRhythmCompare').innerHTML = '';
     const badgeRow = document.getElementById('teamAvgBadgeRow');
     if(badgeRow) badgeRow.innerHTML = '';
-    document.getElementById('teamZoneChartWrap').querySelector('h4').style.display='none';
     document.getElementById('aggTable').style.display='none';
     let emptyEl = document.getElementById('teamEmptyState');
     if(!emptyEl){
@@ -1677,7 +1672,6 @@ function renderTeam(){
   } else {
     const emptyEl = document.getElementById('teamEmptyState');
     if(emptyEl) emptyEl.style.display = 'none';
-    document.getElementById('teamZoneChartWrap').querySelector('h4').style.display='';
     document.getElementById('aggTable').style.display='';
   }
 
@@ -1745,7 +1739,6 @@ function renderTeam(){
   if(!rows.length){
     document.getElementById('aggTableBody').innerHTML = '';
     document.getElementById('teamAvgBadgeRow').innerHTML = '';
-    document.getElementById('teamRhythmCompare').innerHTML = '<div class="team-empty">Nessun dato per i filtri selezionati.</div>';
     return;
   }
 
@@ -1782,8 +1775,6 @@ function renderTeam(){
       <div class="ps-label">Livello intensità medio squadra · ${rows.length} sessione/i</div>
     </div>`;
 
-  const rc = document.getElementById('teamRhythmCompare');
-  rc.innerHTML = rows.map(r => `<div class="chip"><b>${r.name}${r.date?` (${r.date})`:''}:</b> ${RHYTHM_LABELS[r.rhythmBadge]||r.rhythmType||'—'} · livello ${r.proScore!=null?Math.round(r.proScore):'—'}/100</div>`).join('');
 }
 
 function renderPlayerView(rows){
@@ -1813,6 +1804,7 @@ function renderPlayerView(rows){
         <span>${r.allenamento||''}</span>
         <span>Durata <b>${(r.duration/60).toFixed(1)}</b> min</span>
         <span>FC media <b>${Math.round(r.avgHR)}</b></span>
+        <span>FC max <b>${Math.round(r.maxHR)}</b></span>
         <span>Vel. max <b>${fmtNum(r.maxSpeed,1)}</b> km/h</span>
         <span>RPE <b>${r.rpe ?? '—'}</b></span>
         <span>Livello <b>${r.proScore!=null?Math.round(r.proScore):'—'}</b>/100</span>
@@ -3262,6 +3254,68 @@ async function refreshRiskPage(){
   await renderRiskPage(sel.value,all);
 }
 
+function calculateRiskSnapshot(player, all, asOfDate=null){
+  const sessions=all.filter(isSessionEntry).filter(e=>e.player===player);
+  const trainings=all.filter(isTrainingEntry).filter(e=>e.player===player);
+  const cutoff=asOfDate || todayStr();
+  const entries=[...sessions,...trainings].filter(e=>e.date && e.date<=cutoff).sort((a,b)=>a.date.localeCompare(b.date));
+  if(!entries.length) return null;
+  const lastDate=entries[entries.length-1].date;
+  const refDate = dateAddDays(cutoff,1);
+  const loadMap=dailyLoadMap(sessions);
+  const acute7=sumLoadInWindow(loadMap,refDate,7);
+  const chronic28=sumLoadInWindow(loadMap,refDate,28);
+  const chronicWeekly=chronic28/4;
+  const acwr=chronicWeekly>0 ? acute7/chronicWeekly : null;
+  const last7=dailyLoadSeries(loadMap,refDate,7);
+  const mean7=meanArr(last7), sd7=stdArr(last7);
+  const monotony=sd7>0 ? mean7/sd7 : null;
+  const profiles=entries.map(e=>({e,p:getTrainingProfile(e)}));
+  const hiDates=[];
+  profiles.forEach(({e,p})=>{ if(p.high>0 || p.score>=16 || getEntryType(e)==='partita') hiDates.push(e.date); });
+  const uniqHi=[...new Set(hiDates)].sort();
+  const hi7=uniqHi.filter(d=>d>=dateAddDays(refDate,-7)&&d<refDate).length;
+  let consecutive=0; for(let i=1;i<=7;i++){ const d=dateAddDays(refDate,-i); if(uniqHi.includes(d)) consecutive++; else break; }
+  const typeCounts={fartlek:0,ripetute:0,velocita:0,partita:0,continua:0,other:0};
+  entries.filter(e=>e.date>=dateAddDays(refDate,-28)&&e.date<refDate).forEach(e=>{
+    const r=e.rhythmBadge;
+    if(r==='fartlek') typeCounts.fartlek++;
+    else if(r==='ripetute') typeCounts.ripetute++;
+    else if((e.exercises&&e.exercises.velocita&&e.exercises.velocita.length)||r==='velocita') typeCounts.velocita++;
+    else if(getEntryType(e)==='partita') typeCounts.partita++;
+    else if(r==='continua') typeCounts.continua++; else typeCounts.other++;
+  });
+  const recent28=entries.filter(e=>e.date>=dateAddDays(refDate,-28)&&e.date<refDate);
+  const highTypeCount=typeCounts.fartlek+typeCounts.ripetute+typeCounts.velocita+typeCounts.partita;
+  const highTypeShare=recent28.length ? highTypeCount/recent28.length : 0;
+  const recentHigh=uniqHi.filter(d=>d>=dateAddDays(refDate,-7)&&d<refDate).length;
+  const previousHigh=uniqHi.filter(d=>d>=dateAddDays(refDate,-21)&&d<dateAddDays(refDate,-7)).length/2;
+  const highSpike=previousHigh>0 ? recentHigh/previousHigh : (recentHigh>0 ? 2 : 1);
+  const recent=entries.slice(-5);
+  const fat=recent.map(e=>e.fatigue).filter(v=>v!=null).map(Number);
+  const rpes=recent.map(e=>e.rpe).filter(v=>v!=null).map(Number);
+  const avgFat=fat.length?meanArr(fat):null, avgRpe=rpes.length?meanArr(rpes):null;
+  const nonMatch=sessions.filter(s=>getEntryType(s)!=='partita' && s.speedHrIndex!=null).sort((a,b)=>a.date.localeCompare(b.date));
+  let efficiencyDrop=null;
+  if(nonMatch.length>=4){ const recent2=nonMatch.slice(-2).map(s=>Number(s.speedHrIndex)); const base=nonMatch.slice(0,-2).slice(-4).map(s=>Number(s.speedHrIndex)); const ra=meanArr(recent2), ba=meanArr(base); if(ba>0) efficiencyDrop=((ba-ra)/ba)*100; }
+  let score=0;
+  const add=(pts)=>{score+=pts;};
+  if(acwr!=null){ if(acwr>=1.5)add(18); else if(acwr>=1.3)add(10); else if(acwr<0.7)add(3); }
+  if(monotony!=null && monotony>=2)add(Math.min(8,(monotony-1.5)*6));
+  if(hi7>=4)add(12); else if(hi7===3)add(7);
+  if(consecutive>=2)add(Math.min(8,consecutive*3));
+  if(highSpike>=1.75)add(10); else if(highSpike>=1.4)add(5);
+  if(highTypeShare>=.60)add(8); else if(highTypeShare>=.45)add(4);
+  if(typeCounts.velocita>=3)add(7);
+  if(typeCounts.ripetute>=3)add(7);
+  if(typeCounts.fartlek>=4)add(6);
+  if(avgFat!=null && avgFat>=7)add(10); else if(avgFat!=null && avgFat>=5)add(6);
+  if(avgRpe!=null && avgRpe>=8)add(4);
+  if(efficiencyDrop!=null && efficiencyDrop>=12)add(2);
+  const scoreFinal=Math.round(clamp100(score));
+  return {player,score:scoreFinal, acwr, acute7, hi7, consecutive, highTypeShare, avgFat, avgRpe, form:formScoreForSessions(sessions)};
+}
+
 async function renderRiskPage(player, all){
   const el=document.getElementById('riskPageContent');
   if(!el) return;
@@ -3350,10 +3404,10 @@ async function renderRiskPage(player, all){
   if(typeCounts.velocita>=3) add(7,`Molte sedute con scatti/velocità nelle ultime 4 settimane (${typeCounts.velocita}).`);
   if(typeCounts.ripetute>=3) add(7,`Molte sedute di ripetute nelle ultime 4 settimane (${typeCounts.ripetute}).`);
   if(typeCounts.fartlek>=4) add(6,`Fartlek frequente nelle ultime 4 settimane (${typeCounts.fartlek}).`);
-  if(avgFat!=null && avgFat>=7) add(12,`Affaticamento residuo medio alto: ${avgFat.toFixed(1)}/10.`);
+  if(avgFat!=null && avgFat>=7) add(10,`Affaticamento residuo medio alto: ${avgFat.toFixed(1)}/10.`);
   else if(avgFat!=null && avgFat>=5) add(6,`Affaticamento residuo medio sopra la soglia prudenziale: ${avgFat.toFixed(1)}/10.`);
-  if(avgRpe!=null && avgRpe>=8) add(7,`RPE medio recente elevato: ${avgRpe.toFixed(1)}/10.`);
-  if(efficiencyDrop!=null && efficiencyDrop>=12) add(8,`Indice velocità/FC in calo di ${efficiencyDrop.toFixed(0)}% rispetto al baseline recente.`);
+  if(avgRpe!=null && avgRpe>=8) add(4,`RPE medio recente elevato: ${avgRpe.toFixed(1)}/10.`);
+  if(efficiencyDrop!=null && efficiencyDrop>=12) add(2,`Indice velocità/FC in calo di ${efficiencyDrop.toFixed(0)}% rispetto al baseline recente.`);
 
   const riskScore=Math.round(clamp100(score));
   const [riskClass,riskLabel]=riskLevelFromScore(riskScore);
@@ -3413,7 +3467,26 @@ async function renderRiskPage(player, all){
     <ul><li>Il piano del mister resta invariato per la squadra.</li><li>Questa è una raccomandazione individuale basata sui dati disponibili.</li><li>Dolore o sintomi nuovi richiedono valutazione dello staff sanitario.</li></ul>
   </div>` : `<div class="risk-next-plan"><b>Nessun piano futuro del mister trovato.</b><div style="font-size:12px;color:var(--chalk-dim);margin-top:6px;">La raccomandazione viene quindi fatta solo sul carico individuale.</div><div class="decision ${decisionClass}">${decision}</div><div style="font-size:12.5px;color:var(--chalk-dim);">${decisionText}</div></div>`;
 
-  el.innerHTML=`<div class="risk-card">\n    <div class="risk-head"><span class="risk-name">${escXml(player)}</span><span class="risk-badge ${riskClass}">Indice ${riskScore}/100 · ${riskLabel}</span></div>\n    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:12px;">\n      <div class="stat-card"><div class="stat-label">STATO DI FORMA</div><div class="stat-value">${form==null?'—':form.toFixed(0)}</div><div class="stat-sub">${formLabel}${form!=null?' · ultime 5 prestazioni':''}</div></div>\n      <div class="stat-card"><div class="stat-label">CARICO 7 GIORNI</div><div class="stat-value">${Math.round(acute7)}</div><div class="stat-sub">sRPE</div></div>\n      <div class="stat-card"><div class="stat-label">ACWR</div><div class="stat-value">${acwr==null?'—':acwr.toFixed(2)}</div><div class="stat-sub">7 gg vs media 4 settimane</div></div>\n      <div class="stat-card"><div class="stat-label">ALTA INTENSITÀ</div><div class="stat-value">${hi7}</div><div class="stat-sub">giorni negli ultimi 7</div></div>\n    </div>\n    <div style="margin-top:16px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:rgba(0,0,0,.12);font-size:12px;line-height:1.65;color:var(--chalk-dim);">\n      <b style="color:var(--chalk);">Perché la tipologia conta:</b> velocità/scatti e ripetute hanno un peso maggiore; il Fartlek pesa in funzione della quota veloce; partite e giorni consecutivi intensi aumentano la densità. L'obiettivo non è evitare l'intensità, ma <b style="color:var(--chalk);">periodizzarla</b> e distribuire il recupero.\n    </div>\n    <div class="risk-advice ${riskClass==='low'?'ok':''}" style="margin-top:12px;">${advice}</div>\n  </div>\n  <div class="risk-card">\n    <div class="risk-head"><span class="risk-name">Fattori che stanno incidendo</span></div>\n    ${reasons.length?`<ul>${reasons.slice(-10).map(r=>`<li>${r}</li>`).join('')}</ul>`:'<div style="font-size:12.5px;color:var(--chalk-dim);">Nessun segnale importante rilevato nei dati disponibili.</div>'}\n  </div>\n  <div class="risk-card">\n    <div class="risk-head"><span class="risk-name">Tipologie ultime 4 settimane</span></div>\n    <div style="display:flex;gap:8px;flex-wrap:wrap;">${tags.length?tags.map(t=>`<span class="te-type">${t}</span>`).join(''):'<span style="color:var(--chalk-dim);font-size:12px;">Nessun dettaglio di tipologia disponibile.</span>'}</div>\n    <div style="margin-top:12px;font-size:12px;color:var(--chalk-dim);line-height:1.7;">Monotonia ${monotony==null?'—':monotony.toFixed(2)} · Strain ${strain==null?'—':Math.round(strain)} · ${consecutive} giorni intensi consecutivi · RPE medio ${avgRpe==null?'—':avgRpe.toFixed(1)} · Fatigue medio ${avgFat==null?'—':avgFat.toFixed(1)}</div>\n  </div>\n  <div class="plan-hint" style="margin-top:12px;"><b>Nota metodologica:</b> il punteggio è una stratificazione interna dell'app, non una probabilità di infortunio. La letteratura mostra che carico esterno/interno, storia di infortuni, recupero/benessere e caratteristiche neuromuscolari possono essere utili, ma i modelli disponibili sono ancora eterogenei e non sufficientemente validati per trasformare questi dati in una probabilità individuale affidabile. L'ACWR va quindi usato come indicatore di trend e non come soglia diagnostica.</div>`;
+  el.innerHTML=`<div class="risk-card">\n    <div class="risk-head"><span class="risk-name">${escXml(player)}</span><span class="risk-badge ${riskClass}">Indice ${riskScore}/100 · ${riskLabel}</span></div>\n    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:12px;">\n      <div class="stat-card"><div class="stat-label">STATO DI FORMA</div><div class="stat-value">${form==null?'—':form.toFixed(0)}</div><div class="stat-sub">${formLabel}${form!=null?' · ultime 5 prestazioni':''}</div></div>\n      <div class="stat-card"><div class="stat-label">CARICO 7 GIORNI</div><div class="stat-value">${Math.round(acute7)}</div><div class="stat-sub">sRPE</div></div>\n      <div class="stat-card"><div class="stat-label">ACWR</div><div class="stat-value">${acwr==null?'—':acwr.toFixed(2)}</div><div class="stat-sub">7 gg vs media 4 settimane</div></div>\n      <div class="stat-card"><div class="stat-label">ALTA INTENSITÀ</div><div class="stat-value">${hi7}</div><div class="stat-sub">giorni negli ultimi 7</div></div>\n    </div>\n    <div style="margin-top:16px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:rgba(0,0,0,.12);font-size:12px;line-height:1.65;color:var(--chalk-dim);">\n      <b style="color:var(--chalk);">Perché la tipologia conta:</b> velocità/scatti e ripetute hanno un peso maggiore; il Fartlek pesa in funzione della quota veloce; partite e giorni consecutivi intensi aumentano la densità. L'obiettivo non è evitare l'intensità, ma <b style="color:var(--chalk);">periodizzarla</b> e distribuire il recupero.\n    </div>\n    <div class="risk-advice ${riskClass==='low'?'ok':''}" style="margin-top:12px;">${advice}</div>\n  </div>\n  <div class="risk-card">\n    <div class="risk-head"><span class="risk-name">Fattori che stanno incidendo</span></div>\n    ${reasons.length?`<ul>${reasons.slice(-10).map(r=>`<li>${r}</li>`).join('')}</ul>`:'<div style="font-size:12.5px;color:var(--chalk-dim);">Nessun segnale importante rilevato nei dati disponibili.</div>'}\n  </div>\n  <div class="risk-card">\n    <div class="risk-head"><span class="risk-name">Tipologie ultime 4 settimane</span></div>\n    <div style="display:flex;gap:8px;flex-wrap:wrap;">${tags.length?tags.map(t=>`<span class="te-type">${t}</span>`).join(''):'<span style="color:var(--chalk-dim);font-size:12px;">Nessun dettaglio di tipologia disponibile.</span>'}</div>\n    <div style="margin-top:12px;font-size:12px;color:var(--chalk-dim);line-height:1.7;">Monotonia ${monotony==null?'—':monotony.toFixed(2)} · Strain ${strain==null?'—':Math.round(strain)} · ${consecutive} giorni intensi consecutivi · RPE medio ${avgRpe==null?'—':avgRpe.toFixed(1)} · Fatigue medio ${avgFat==null?'—':avgFat.toFixed(1)}</div>\n  </div>\n  <div class="risk-card" id="riskTeamComparisonCard">
+    <div class="risk-head"><span class="risk-name">Confronto rischio squadra</span></div>
+    <div id="riskTeamComparison">Calcolo confronto squadra…</div>
+  </div>
+  <div class="plan-hint" style="margin-top:12px;"><b>Nota metodologica:</b> il punteggio è una stratificazione interna dell'app, non una probabilità di infortunio. La letteratura mostra che carico esterno/interno, storia di infortuni, recupero/benessere e caratteristiche neuromuscolari possono essere utili, ma i modelli disponibili sono ancora eterogenei e non sufficientemente validati per trasformare questi dati in una probabilità individuale affidabile. L'ACWR va quindi usato come indicatore di trend e non come soglia diagnostica.</div>`;
+  const cmp=document.getElementById('riskTeamComparison');
+  if(cmp){
+    const names=[...new Set(all.map(e=>e.player).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    const currentAsOf=todayStr();
+    const previousAsOf=dateAddDays(currentAsOf,-7);
+    const snaps=names.map(n=>calculateRiskSnapshot(n,all,currentAsOf)).filter(Boolean).sort((a,b)=>b.score-a.score);
+    const previousMap=new Map(names.map(n=>[n,calculateRiskSnapshot(n,all,previousAsOf)]));
+    const teamMean=snaps.length?mean(snaps.map(x=>x.score)):null;
+    const highCount=snaps.filter(x=>x.score>=70).length;
+    const medCount=snaps.filter(x=>x.score>=45&&x.score<70).length;
+    const generality=snaps.length && (highCount+medCount)/snaps.length>=0.5 ? 'Rischio prevalentemente generale di squadra' : 'Rischio prevalentemente individuale';
+    const explanation=snaps.length ? `${highCount} alto · ${medCount} moderato · ${snaps.length-highCount-medCount} basso · media squadra ${Math.round(teamMean)}/100` : 'Dati insufficienti';
+    const avgByDate={};
+    cmp.innerHTML=`<div style="font-size:12px;color:var(--chalk-dim);margin-bottom:10px;"><b style="color:var(--chalk);">${generality}</b><br>${explanation}</div><div style="overflow:auto;"><table class="agg"><thead><tr><th>Giocatore</th><th>Rischio</th><th>Andamento</th><th>ACWR</th><th>Alta intensità 7g</th><th>Fatigue</th><th>Interpretazione</th></tr></thead><tbody>${snaps.map(x=>{const delta=x.score-Math.round(teamMean||0); const prev=previousMap.get(x.player); const change=prev?x.score-prev.score:null; const trend=change==null?'—':change>=8?'↑ in aumento':change<=-8?'↓ in calo':'→ stabile'; const cls=x.score>=70?'high':x.score>=45?'medium':'low'; return `<tr><td>${escXml(x.player)}</td><td><span class="risk-badge ${cls}">${x.score}/100</span></td><td>${trend}${change!=null?` (${change>0?'+':''}${change})`:''}</td><td>${x.acwr==null?'—':x.acwr.toFixed(2)}</td><td>${x.hi7}</td><td>${x.avgFat==null?'—':x.avgFat.toFixed(1)}</td><td>${x.score>=70?'criticità alta':x.score>=45?'attenzione':'carico gestibile'}</td></tr>`;}).join('')}</tbody></table></div><div style="margin-top:10px;font-size:12px;color:var(--chalk-dim);">La tabella confronta il livello individuale con quello della squadra: se molti giocatori salgono insieme, il segnale è più compatibile con un problema di carico generale; se uno o pochi sono nettamente sopra la media, il segnale è più individuale.</div>`;
+  }
 }
 document.getElementById('reportPlayerSelect').addEventListener('change', refreshReport);
 document.getElementById('reportWindowSelect').addEventListener('change', refreshReport);
